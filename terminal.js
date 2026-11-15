@@ -69,24 +69,25 @@ body.in-terminal .spot span { display: none; }
 
 #term {
   --g: #5dff8f; --gd: #1f9c4d; --gk: #02180b;
-  position: fixed; inset: 0; z-index: 20; display: none;
-  align-items: center; justify-content: center;
-  background: rgba(1, 8, 3, .88); color: var(--g); outline: none;
+  position: fixed; inset: 0; z-index: 20; display: none; pointer-events: none; color: var(--g);
   font-family: 'VT323', ui-monospace, Menlo, Consolas, monospace;
 }
-#term.show { display: flex; animation: t-on .38s ease-out; }
-#term.closing { animation: t-off .22s ease-in forwards; }
+#term.show { display: block; }
+#term.static { background: rgba(1, 8, 3, .88); } /* reduced motion: no fly-in, so dim the page instead */
+/* .pos is a fixed-size screen (see sizeFor in terminal.js) that is scaled and moved onto the computer's monitor */
+#term .pos { position: absolute; left: 0; top: 0; transform-origin: 0 0; pointer-events: auto; outline: none; }
+#term.show .crt { animation: t-on .38s ease-out; }
+#term.closing .crt { animation: t-off .22s ease-in forwards; }
 @keyframes t-on { 0% { opacity: 0; transform: scale(1, .006); } 40% { opacity: 1; transform: scale(1, .006); } 100% { opacity: 1; transform: none; } }
 @keyframes t-off { 0% { opacity: 1; transform: none; } 60% { opacity: 1; transform: scale(1, .006); } 100% { opacity: 0; transform: scale(1, .006); } }
 
 #term .crt {
-  position: relative; display: flex; flex-direction: column;
-  width: min(980px, 94vw); height: min(680px, 88vh); padding: clamp(14px, 3vmin, 32px);
+  position: relative; display: flex; flex-direction: column; width: 100%; height: 100%;
+  padding: 22px 26px; overflow: hidden;
   background: radial-gradient(ellipse at center, #04281a 0%, #021509 100%);
-  border: 3px solid var(--gd); border-radius: 18px; overflow: hidden;
-  box-shadow: 0 0 40px rgba(93, 255, 143, .25), inset 0 0 90px rgba(0, 0, 0, .75);
-  font-size: clamp(18px, 3vmin, 30px); line-height: 1.15;
-  text-shadow: 0 0 6px rgba(93, 255, 143, .65);
+  box-shadow: inset 0 0 70px rgba(0, 0, 0, .7);
+  font-size: 22px; line-height: 1.15;
+  text-shadow: 0 0 5px rgba(93, 255, 143, .65);
 }
 #term .crt::after { /* scanlines */
   content: ''; position: absolute; inset: 0; pointer-events: none;
@@ -99,38 +100,40 @@ body.in-terminal .spot span { display: none; }
 @keyframes t-flick { 0% { opacity: 1; } 48% { opacity: .4; } 50% { opacity: 1; } 78% { opacity: .6; } 80% { opacity: 1; } }
 
 #term .head { letter-spacing: .08em; text-transform: uppercase; }
-#term .rule { border-bottom: 2px solid var(--gd); margin: .45em 0 .6em; }
+#term .rule { border-bottom: 2px solid var(--gd); margin: .35em 0 .45em; }
 #term .main { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-#term .cols { flex: 1; min-height: 0; display: flex; gap: 1.6em; }
+#term .cols { flex: 1; min-height: 0; display: flex; gap: 1.4em; }
 #term .list { flex: 1 1 55%; overflow-y: auto; scrollbar-width: none; }
 #term .list::-webkit-scrollbar { display: none; }
 #term .main > .list { flex: none; } /* the action list under a project's text takes only the room it needs */
 #term .opt {
   display: flex; justify-content: space-between; gap: 1em; width: 100%;
   font: inherit; color: inherit; text-shadow: inherit; text-align: left; text-transform: uppercase;
-  background: none; border: 0; padding: .12em .5em; cursor: pointer;
+  background: none; border: 0; padding: .1em .5em; cursor: pointer;
   animation: t-in .25s both;
 }
+#term .opt .l { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #term .opt .r { opacity: .75; white-space: nowrap; }
 #term .opt.sel { background: var(--g); color: var(--gk); text-shadow: none; }
 @keyframes t-in { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: none; } }
-#term .prev { flex: 1 1 45%; border-left: 2px solid var(--gd); padding-left: 1.2em; overflow: auto; scrollbar-width: none; }
+#term .prev { flex: 1 1 45%; border-left: 2px solid var(--gd); padding-left: 1em; overflow: auto; scrollbar-width: none; }
 #term .prev .ttl, #term .text .ttl { text-transform: uppercase; margin-bottom: .2em; }
-#term .meta { opacity: .75; margin-bottom: .6em; }
-#term .text { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: none; margin-bottom: .6em; }
-#term .text .ln { margin-bottom: .55em; }
+#term .meta { opacity: .75; margin-bottom: .5em; }
+#term .text { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: none; margin-bottom: .5em; }
+#term .text .ln { margin-bottom: .5em; }
 #term .foot {
-  border-top: 2px solid var(--gd); margin-top: .5em; padding-top: .4em;
+  border-top: 2px solid var(--gd); margin-top: .4em; padding-top: .3em;
   font-size: .72em; opacity: .8; text-transform: uppercase; letter-spacing: .05em;
 }
 #term .cur { display: inline-block; width: .5em; height: .9em; margin-left: 2px; vertical-align: -.1em; background: var(--g); animation: t-blink 1s steps(1) infinite; }
 @keyframes t-blink { 50% { opacity: 0; } }
-@media (max-width: 700px) {
-  #term .cols { flex-direction: column; gap: .6em; }
-  #term .prev { border-left: 0; border-top: 2px solid var(--gd); padding: .6em 0 0; }
-}
+/* narrow windows get a smaller, tighter screen so the text stays readable */
+#term .crt.narrow { padding: 14px 16px; font-size: 18px; }
+#term .crt.narrow .head br { display: none; }
+#term .crt.narrow .cols { flex-direction: column; gap: .4em; }
+#term .crt.narrow .prev { display: none; }
 @media (prefers-reduced-motion: reduce) {
-  #term.show, #term.closing, #term .opt, #term .crt::before, #term .cur { animation: none; }
+  #term.show .crt, #term.closing .crt, #term .opt, #term .crt::before, #term .cur { animation: none; }
 }
 `;
   document.head.appendChild(css);
@@ -143,15 +146,40 @@ body.in-terminal .spot span { display: none; }
   term.setAttribute('aria-modal', 'true');
   term.setAttribute('aria-label', 'Tech projects terminal');
   term.innerHTML =
-    '<div class="crt">' +
-    '<div class="head">Avery-OS TermLink v1.0<br>Tech Projects Database</div>' +
+    '<div class="pos"><div class="crt">' +
+    '<div class="head">Avery-OS TermLink v1.0<br> Tech Projects Database</div>' +
     '<div class="rule"></div>' +
     '<div class="main"></div>' +
     '<div class="foot"></div>' +
-    '</div>';
+    '</div></div>';
   document.body.appendChild(term);
+  const pos = term.querySelector('.pos');
+  const crt = term.querySelector('.crt');
   const main = term.querySelector('.main');
   const foot = term.querySelector('.foot');
+
+  // The terminal is a fixed-size "screen" that gets scaled and moved so it sits exactly on the
+  // monitor of the computer in the tree (tree.js reports where that screen is on every frame).
+  let sizedFor = 0;
+  function layoutTerm() {
+    if (!st.open || !st.shown) return;
+    const narrow = innerWidth < 640;
+    const w = narrow ? 460 : 700, h = Math.round(w * 9 / 14);
+    if (w !== sizedFor) {
+      sizedFor = w;
+      pos.style.width = w + 'px'; pos.style.height = h + 'px';
+      crt.classList.toggle('narrow', narrow);
+    }
+    let x, y, k;
+    if (reduce) { // no fly-in with reduced motion: show it centred instead
+      k = Math.min(innerWidth * 0.92 / w, innerHeight * 0.88 / h);
+      x = (innerWidth - w * k) / 2; y = (innerHeight - h * k) / 2;
+    } else {
+      const r = scene.screenRect();
+      k = r.w / w; x = r.x; y = r.y;
+    }
+    pos.style.transform = 'translate(' + x.toFixed(2) + 'px,' + y.toFixed(2) + 'px) scale(' + k.toFixed(4) + ')';
+  }
 
   const el = (tag, cls, text) => {
     const n = document.createElement(tag);
@@ -270,6 +298,9 @@ body.in-terminal .spot span { display: none; }
   // ---------- open / close ----------
   function show() {
     st.shown = true;
+    term.classList.remove('closing');
+    term.classList.toggle('static', reduce);
+    layoutTerm();
     term.classList.add('show');
     st.sel = 0;
     renderMenu(true);
@@ -279,6 +310,7 @@ body.in-terminal .spot span { display: none; }
   function open(viaKey) {
     if (st.open) return;
     st.open = true; st.shown = false; st.viaKey = viaKey;
+    term.classList.remove('closing');
     const tk = ++st.token;
     document.body.classList.add('in-terminal');
     if (!viaKey) pcLink.blur(); // otherwise the link keeps its hover-zoom after closing
@@ -297,12 +329,13 @@ body.in-terminal .spot span { display: none; }
     const wasShown = st.shown;
     st.open = false; st.shown = false; st.token++;
     if (typer) { typer.stop(); typer = null; }
-    if (wasShown && !reduce) {
-      term.classList.add('closing');
-      setTimeout(() => term.classList.remove('show', 'closing'), 230);
-    } else term.classList.remove('show', 'closing');
-    scene.focus(false);
-    setTimeout(() => { if (!st.open) document.body.classList.remove('in-terminal'); }, reduce ? 0 : 950);
+    const finish = () => {
+      if (st.open) return; // opened again in the meantime
+      term.classList.remove('show', 'closing');
+      scene.focus(false); // camera backs out once the screen has switched off
+      setTimeout(() => { if (!st.open) document.body.classList.remove('in-terminal'); }, reduce ? 0 : 950);
+    };
+    if (wasShown && !reduce) { term.classList.add('closing'); setTimeout(finish, 230); } else finish();
     if (st.viaKey) pcLink.focus({ preventScroll: true });
   }
 
@@ -340,7 +373,8 @@ body.in-terminal .spot span { display: none; }
   });
 
   let acc = 0, lastMove = 0;
-  term.addEventListener('wheel', e => {
+  document.addEventListener('wheel', e => {
+    if (!st.open) return;
     e.preventDefault();
     if (!st.shown) return;
     const box = cur.textBox;
@@ -353,6 +387,9 @@ body.in-terminal .spot span { display: none; }
       acc = 0; lastMove = now;
     }
   }, { passive: false });
+
+  scene.onFrame = layoutTerm; // tree.js calls this every frame, right after it moves the camera
+  addEventListener('resize', layoutTerm);
 
   // clicking the text while it types finishes it
   main.addEventListener('click', e => {
