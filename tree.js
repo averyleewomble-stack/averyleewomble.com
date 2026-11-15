@@ -1062,14 +1062,15 @@
 
   // ---------- mouse pan: the whole scene drifts a little as the cursor moves, like looking around ----------
   const pan = { x: 0, y: 0, tx: 0, ty: 0 };
-  const PAN_FRACTION = 0.03; // max drift as a fraction of the window's shorter side
+  const PAN_Y_SCALE = 0.4;    // vertical drift relative to horizontal; keeps the ground and bike on screen
+  const PAN_FRACTION = 0.09; // max drift as a fraction of the window's shorter side (raise for a stronger pan)
   if (!reduce) {
     addEventListener('pointermove', e => {
       if (e.pointerType === 'touch') return; // fingers don't hover, so only mouse and pen pan
       const nx = clamp(e.clientX / Math.max(innerWidth, 1) * 2 - 1, -1, 1);
       const ny = clamp(e.clientY / Math.max(innerHeight, 1) * 2 - 1, -1, 1);
       const max = Math.min(innerWidth, innerHeight) * PAN_FRACTION;
-      pan.tx = -nx * max; pan.ty = -ny * max; // scene moves opposite the cursor
+      pan.tx = -nx * max; pan.ty = -ny * max * PAN_Y_SCALE; // scene moves opposite the cursor
     });
     document.documentElement.addEventListener('mouseleave', () => { pan.tx = 0; pan.ty = 0; });
   }
