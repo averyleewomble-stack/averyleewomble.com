@@ -566,7 +566,7 @@
   const PCX = 74, PCY = -268; // bottom-left of the case, at rest
   function drawPC() {
     // hangs from the limb above by its power cord, turning a little in the breeze
-    const a = branchPt(LIMBS[3], 0.85), swing = Math.sin(T * 1.1) * 3 + Math.sin(T * 0.43 + 2) * 1.5;
+    const a = branchPt(LIMBS[3], 0.85), swing = pcSwing();
     const x = bx + PCX + Math.round(swing), y = by + PCY;
     line(a[0], a[1], a[0] + swing * 0.3, a[1] + 6, PCC.k); line(a[0] + swing * 0.3, a[1] + 6, x + 14, y - 29, PCC.k);
     rect(x + 13, y - 31, 3, 2, PCC.k);
@@ -1066,9 +1066,16 @@
   // ---------- focus: fly in on the hanging computer (driven by terminal.js) ----------
   const focus = { want: false, k: 0 };
   const FOCUS_IN = 1.25, FOCUS_OUT = 0.9; // seconds
-  function pcCenter() { // centre of the computer's monitor, in scene pixels (follows its sway)
-    const swing = Math.sin(T * 1.1) * 3 + Math.sin(T * 0.43 + 2) * 1.5;
-    return [bx + PCX + Math.round(swing) + 14, by + PCY - 20];
+  const view = { ox: 0, oy: 0, tx: 0, ty: 0, zz: 1 }; // the transform last applied to the stage
+  const focusE = () => focus.k * focus.k * (3 - 2 * focus.k); // eased 0..1
+  // the computer sways in the breeze, but settles as the camera flies in so the screen holds still
+  const pcSwing = () => (Math.sin(T * 1.1) * 3 + Math.sin(T * 0.43 + 2) * 1.5) * (1 - focusE());
+  function pcCenter() { // centre of the monitor's screen, in scene pixels
+    return [bx + PCX + Math.round(pcSwing()) + 14, by + PCY - 20.5];
+  }
+  function screenRect() { // the monitor's screen as it is on the window right now, in CSS pixels
+    const sx = bx + PCX + Math.round(pcSwing()) + 7, sy = by + PCY - 25;
+    return { x: view.ox + view.tx + view.zz * sx * S, y: view.oy + view.ty + view.zz * sy * S, w: view.zz * 14 * S, h: view.zz * 9 * S };
   }
   const PAN_Y_SCALE = 0.4;    // vertical drift relative to horizontal; keeps the ground and bike on screen
   const PAN_FRACTION = 0.09; // max drift as a fraction of the window's shorter side (raise for a stronger pan)
@@ -1102,11 +1109,12 @@
 
     // fly-in: zoom about a fixed point until the monitor fills most of the window
     focus.k = clamp(focus.k + (focus.want ? dt / FOCUS_IN : -dt / FOCUS_OUT), 0, 1);
-    const e = focus.k * focus.k * (3 - 2 * focus.k); // smoothstep
+    const e = focusE();
     let zz = z, tx = zoom.tx, ty = zoom.ty;
     if (e > 0) {
       const [pcx, pcy] = pcCenter();
-      const Zf = Math.min(innerWidth * 0.8 / (22 * S), innerHeight * 0.8 / (18 * S));
+      const fill = innerWidth < 640 ? 0.94 : 0.72; // how much of the window the screen fills
+      const Zf = Math.min(innerWidth * fill / (14 * S), innerHeight * fill / (9 * S));
       const txF = innerWidth / 2 - pcx * S * Zf, tyF = innerHeight / 2 - pcy * S * Zf;
       if (Math.abs(z - Zf) > 1e-3) {
         const px = (txF - tx) / (z - Zf), py = (tyF - ty) / (z - Zf); // the point that stays put
@@ -1117,6 +1125,7 @@
     }
     const ox = pan.x * (1 - e), oy = pan.y * (1 - e); // the pan fades out as we fly in
     const shifted = Math.abs(ox) > 0.005 || Math.abs(oy) > 0.005;
+    view.ox = ox; view.oy = oy; view.zz = zz; view.tx = zz === 1 ? 0 : tx; view.ty = zz === 1 ? 0 : ty;
     if (zz === 1 && !shifted) stage.style.transform = 'none';
     else stage.style.transform = (shifted ? `translate(${ox.toFixed(2)}px,${oy.toFixed(2)}px) ` : '') +
       (zz === 1 ? '' : `translate(${tx.toFixed(2)}px,${ty.toFixed(2)}px) scale(${zz.toFixed(4)})`);
@@ -1184,6 +1193,7 @@
     const sdt = dt * slow;
     T += sdt;
     stepWind(sdt); stepLeaves(sdt); stepSmoke(sdt); stepZaps(sdt); stepBus(sdt); stepCat(sdt); stepZoom(dt);
+    if (window.__scene && window.__scene.onFrame) window.__scene.onFrame(); // lets terminal.js follow the screen
     updateDyn();
     render();
     requestAnimationFrame(frame);
@@ -1198,7 +1208,7 @@
   addEventListener('pointerdown', track);
   addEventListener('resize', () => { layout(); if (reduce) render(); });
 
-  window.__scene = { bus, cat, render, focus: on => { focus.want = !!on; }, focusK: () => focus.k }; // handle for the console and terminal.js
+  window.__scene = { bus, cat, render, focus: on => { focus.want = !!on; }, focusK: () => focus.k, screenRect, onFrame: null }; // handle for the console and terminal.js
   layout();
   if (reduce) { T = 2; bus.wait = 0; bus.x = 30; updateDyn(); render(); } // still scene: bus parked where it can be clicked
   else requestAnimationFrame(frame);
