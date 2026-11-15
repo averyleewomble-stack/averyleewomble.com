@@ -1059,6 +1059,20 @@
 
   // ---------- hover emphasis: a slight push-in, fast at first, then slower and slower ----------
   const zoom = { fast: 0, slow: 0, z: 1, fx: 0, fy: 0, tx: 0, ty: 0 };
+
+  // ---------- mouse pan: the whole scene drifts a little as the cursor moves, like looking around ----------
+  const pan = { x: 0, y: 0, tx: 0, ty: 0 };
+  const PAN_FRACTION = 0.03; // max drift as a fraction of the window's shorter side
+  if (!reduce) {
+    addEventListener('pointermove', e => {
+      if (e.pointerType === 'touch') return; // fingers don't hover, so only mouse and pen pan
+      const nx = clamp(e.clientX / Math.max(innerWidth, 1) * 2 - 1, -1, 1);
+      const ny = clamp(e.clientY / Math.max(innerHeight, 1) * 2 - 1, -1, 1);
+      const max = Math.min(innerWidth, innerHeight) * PAN_FRACTION;
+      pan.tx = -nx * max; pan.ty = -ny * max; // scene moves opposite the cursor
+    });
+    document.documentElement.addEventListener('mouseleave', () => { pan.tx = 0; pan.ty = 0; });
+  }
   function stepZoom(dt) {
     const full = 0.14;
     const on = !!hovered;
@@ -1072,7 +1086,14 @@
       else { const k = 1 - Math.exp(-dt / 0.12); zoom.fx += (cx - zoom.fx) * k; zoom.fy += (cy - zoom.fy) * k; }
     }
     zoom.z = z; zoom.tx = zoom.fx * (1 - z); zoom.ty = zoom.fy * (1 - z);
-    stage.style.transform = z === 1 ? 'none' : `translate(${zoom.tx.toFixed(2)}px,${zoom.ty.toFixed(2)}px) scale(${z.toFixed(4)})`;
+    const k = 1 - Math.exp(-dt / 0.35); // glide toward the pan target
+    pan.x += (pan.tx - pan.x) * k; pan.y += (pan.ty - pan.y) * k;
+    if (Math.abs(pan.x - pan.tx) < 0.01) pan.x = pan.tx;
+    if (Math.abs(pan.y - pan.ty) < 0.01) pan.y = pan.ty;
+    const still = pan.x === 0 && pan.y === 0;
+    if (z === 1 && still) stage.style.transform = 'none';
+    else stage.style.transform = (still ? '' : `translate(${pan.x.toFixed(2)}px,${pan.y.toFixed(2)}px) `) +
+      (z === 1 ? '' : `translate(${zoom.tx.toFixed(2)}px,${zoom.ty.toFixed(2)}px) scale(${z.toFixed(4)})`);
   }
 
   function layout() {
@@ -1143,8 +1164,8 @@
   }
 
   const track = e => {
-    mouse.x = (e.clientX - zoom.tx) / zoom.z / S;
-    mouse.y = (e.clientY - zoom.ty) / zoom.z / S;
+    mouse.x = (e.clientX - pan.x - zoom.tx) / zoom.z / S;
+    mouse.y = (e.clientY - pan.y - zoom.ty) / zoom.z / S;
     mouse.last = T;
   };
   addEventListener('pointermove', track);
