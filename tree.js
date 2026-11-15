@@ -1062,6 +1062,14 @@
 
   // ---------- mouse pan: the whole scene drifts a little as the cursor moves, like looking around ----------
   const pan = { x: 0, y: 0, tx: 0, ty: 0 };
+
+  // ---------- focus: fly in on the hanging computer (driven by terminal.js) ----------
+  const focus = { want: false, k: 0 };
+  const FOCUS_IN = 1.25, FOCUS_OUT = 0.9; // seconds
+  function pcCenter() { // centre of the computer's monitor, in scene pixels (follows its sway)
+    const swing = Math.sin(T * 1.1) * 3 + Math.sin(T * 0.43 + 2) * 1.5;
+    return [bx + PCX + Math.round(swing) + 14, by + PCY - 20];
+  }
   const PAN_Y_SCALE = 0.4;    // vertical drift relative to horizontal; keeps the ground and bike on screen
   const PAN_FRACTION = 0.09; // max drift as a fraction of the window's shorter side (raise for a stronger pan)
   if (!reduce) {
@@ -1076,7 +1084,7 @@
   }
   function stepZoom(dt) {
     const full = 0.14;
-    const on = !!hovered;
+    const on = !!hovered && !focus.want;
     zoom.fast += ((on ? full * 0.78 : 0) - zoom.fast) * (1 - Math.exp(-dt / (on ? 0.14 : 0.22)));
     zoom.slow += ((on ? full * 0.22 : 0) - zoom.slow) * (1 - Math.exp(-dt / (on ? 4 : 0.22)));
     let z = 1 + zoom.fast + zoom.slow;
@@ -1091,10 +1099,27 @@
     pan.x += (pan.tx - pan.x) * k; pan.y += (pan.ty - pan.y) * k;
     if (Math.abs(pan.x - pan.tx) < 0.01) pan.x = pan.tx;
     if (Math.abs(pan.y - pan.ty) < 0.01) pan.y = pan.ty;
-    const still = pan.x === 0 && pan.y === 0;
-    if (z === 1 && still) stage.style.transform = 'none';
-    else stage.style.transform = (still ? '' : `translate(${pan.x.toFixed(2)}px,${pan.y.toFixed(2)}px) `) +
-      (z === 1 ? '' : `translate(${zoom.tx.toFixed(2)}px,${zoom.ty.toFixed(2)}px) scale(${z.toFixed(4)})`);
+
+    // fly-in: zoom about a fixed point until the monitor fills most of the window
+    focus.k = clamp(focus.k + (focus.want ? dt / FOCUS_IN : -dt / FOCUS_OUT), 0, 1);
+    const e = focus.k * focus.k * (3 - 2 * focus.k); // smoothstep
+    let zz = z, tx = zoom.tx, ty = zoom.ty;
+    if (e > 0) {
+      const [pcx, pcy] = pcCenter();
+      const Zf = Math.min(innerWidth * 0.8 / (22 * S), innerHeight * 0.8 / (18 * S));
+      const txF = innerWidth / 2 - pcx * S * Zf, tyF = innerHeight / 2 - pcy * S * Zf;
+      if (Math.abs(z - Zf) > 1e-3) {
+        const px = (txF - tx) / (z - Zf), py = (tyF - ty) / (z - Zf); // the point that stays put
+        const sx = z * px + tx, sy = z * py + ty;
+        zz = z * Math.pow(Zf / z, e);
+        tx = sx - zz * px; ty = sy - zz * py;
+      }
+    }
+    const ox = pan.x * (1 - e), oy = pan.y * (1 - e); // the pan fades out as we fly in
+    const shifted = Math.abs(ox) > 0.005 || Math.abs(oy) > 0.005;
+    if (zz === 1 && !shifted) stage.style.transform = 'none';
+    else stage.style.transform = (shifted ? `translate(${ox.toFixed(2)}px,${oy.toFixed(2)}px) ` : '') +
+      (zz === 1 ? '' : `translate(${tx.toFixed(2)}px,${ty.toFixed(2)}px) scale(${zz.toFixed(4)})`);
   }
 
   function layout() {
@@ -1155,7 +1180,7 @@
     const dt = Math.min(0.05, (now - prev) / 1000 || 0);
     prev = now;
     // while the pointer rests on something, the whole scene eases into slow motion
-    slow += ((hovered ? 0.25 : 1) - slow) * (1 - Math.exp(-dt / 0.25));
+    slow += ((hovered && !focus.want ? 0.25 : 1) - slow) * (1 - Math.exp(-dt / 0.25));
     const sdt = dt * slow;
     T += sdt;
     stepWind(sdt); stepLeaves(sdt); stepSmoke(sdt); stepZaps(sdt); stepBus(sdt); stepCat(sdt); stepZoom(dt);
@@ -1173,8 +1198,11 @@
   addEventListener('pointerdown', track);
   addEventListener('resize', () => { layout(); if (reduce) render(); });
 
-  window.__scene = { bus, cat, render }; // handle for poking at the scene from the console
+  window.__scene = { bus, cat, render, focus: on => { focus.want = !!on; }, focusK: () => focus.k }; // handle for the console and terminal.js
   layout();
   if (reduce) { T = 2; bus.wait = 0; bus.x = 30; updateDyn(); render(); } // still scene: bus parked where it can be clicked
   else requestAnimationFrame(frame);
 })();
+
+// Terminal for the tech-projects computer. Optional: if terminal.js is missing, the computer just links to tech-projects.html.
+{ const t = document.createElement('script'); t.src = 'terminal.js'; document.body.appendChild(t); }
