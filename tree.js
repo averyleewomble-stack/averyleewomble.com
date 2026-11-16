@@ -368,10 +368,14 @@
 
   // ---------- things in the tree ----------
   // briefcase hanging by its handle
-  function drawBriefcase() {
+  function caseGeom() {
     const a = branchPt(SUBS[10], 0.55);
-    const sw = Math.sin(T * 1.1 + 0.5) * 0.9;
-    const cx = Math.round(a[0] + sw), top = Math.round(a[1] + 11);
+    const sw = Math.sin(T * 1.1 + 0.5) * 0.9 * (1 - bc.amt); // hangs still while it is open
+    return { a, cx: Math.round(a[0] + sw), top: Math.round(a[1] + 11) };
+  }
+  function drawBriefcase() {
+    if (bc.vis) return; // the opened case is drawn by drawCase, over this spot
+    const { a, cx, top } = caseGeom();
     const dk = C('#3a231f'), mid = C('#8c5431'), hi = C('#ad6f40'), lo = C('#6c3d27'), brass = C('#e3b341'), hd = C('#2b1c1d');
     line(a[0], a[1], cx, top - 5, ROPE);
     rect(cx - 5, top - 5, 11, 2, hd);
@@ -559,14 +563,15 @@
   }
 
   // ---------- an old beige PC, shorting out ----------
-  const PCC = { b: C('#d8d2bd'), d: C('#a9a28b'), l: C('#eee9da'), k: C('#2a2d33'), s: C('#12301f'), g: C('#5dff8a'), r: C('#ff5a4a') };
+  const PCC = { b: C('#d8d2bd'), d: C('#a9a28b'), l: C('#eee9da'), k: C('#2a2d33'), s: C('#12301f'), g: C('#5dff8a'), gd: C('#2f8a4a'), r: C('#ff5a4a') };
   const ZAPC = ['#ffffff', '#fff27a', '#9be8ff', '#d9f6ff'].map(C);
   const zaps = [], sparks = [];
   let zapClock = 1;
+  const pcScr = { x: 0, y: 0 }; // where the screen was last drawn, in scene pixels
   const PCX = 74, PCY = -268; // bottom-left of the case, at rest
   function drawPC() {
     // hangs from the limb above by its power cord, turning a little in the breeze
-    const a = branchPt(LIMBS[3], 0.85), swing = pcSwing();
+    const a = branchPt(LIMBS[3], 0.85), swing = (Math.sin(T * 1.1) * 3 + Math.sin(T * 0.43 + 2) * 1.5) * (1 - pc.amt); // holds still while the menu is up
     const x = bx + PCX + Math.round(swing), y = by + PCY;
     line(a[0], a[1], a[0] + swing * 0.3, a[1] + 6, PCC.k); line(a[0] + swing * 0.3, a[1] + 6, x + 14, y - 29, PCC.k);
     rect(x + 13, y - 31, 3, 2, PCC.k);
@@ -576,11 +581,12 @@
     rect(x + 10, y - 11, 8, 2, PCC.d);
     rect(x + 3, y - 29, 22, 18, PCC.d); rect(x + 4, y - 28, 20, 16, PCC.b); rect(x + 4, y - 28, 20, 1, PCC.l);
     rect(x + 6, y - 26, 16, 11, PCC.k); rect(x + 7, y - 25, 14, 9, PCC.s);
-    for (let k = 0; k < 3; k++) { // garbage scrolling up the screen
+    for (let k = 0; k < (pc.open ? 0 : 3); k++) { // garbage scrolling up the screen, until the menu takes over
       const row = ((T * 11 + k * 3.7) % 9) | 0;
       rect(x + 7, y - 25 + row, 3 + ((hash(k, (T * 6) | 0, 5) * 11) | 0), 1, PCC.g);
     }
     P(x + 21, y - 14, PCC.g);
+    pcScr.x = x + 7; pcScr.y = y - 25;
     // its mouse swings from the cord
     const sw = Math.sin(T * 1.3) * 3;
     line(x + 27, y - 3, x + 31 + sw * 0.5, y + 4, PCC.k); line(x + 31 + sw * 0.5, y + 4, x + 31 + sw, y + 10, PCC.k);
@@ -974,7 +980,10 @@
 
   // ---------- Freddy's house ----------
   const HS = { wall: C('#dcbd8e'), wallD: C('#b99766'), roof: C('#b84d3f'), roofD: C('#8c352d'), ink: C('#2b2126'), in: C('#3d2f33'), sign: C('#f4ecd8'), z: C('#6d6a75'), zL: C('#b9b6c0') };
-  const GLYPH = { F: '111100110100100', R: '110101110101101', E: '111100110100111', D: '110101101101110', Y: '101101010010010' };
+  const GLYPH = { F: '111100110100100', R: '110101110101101', E: '111100110100111', D: '110101101101110', Y: '101101010010010',
+    T: '111010010010010', C: '111100100100111', H: '101101111101101', P: '110101110100100', O: '111101101101111', J: '001001001101111', S: '111100111001111',
+    B: '110101110101110', U: '101101101101111', I: '111010010010111', L: '100100100100111', W: '101101101111101', A: '010101111101101', K: '101101110101101', '>': '100010001010100',
+    N: '111101101101101', Z: '111001010100111', G: '111100101101111', M: '101111111101101' };
   function drawHouse() {
     const x = bx + HOUSE_X - 22, y = by + 27;
     rect(x, y - 22, 44, 22, HS.wallD); rect(x + 1, y - 21, 42, 20, HS.wall);
@@ -1051,47 +1060,337 @@
   let hovered = null;
   for (const s of SPOTS) {
     s.el = document.getElementById(s.id);
-    const on = () => { hovered = s; if (reduce) render(); };
+    const on = () => { if (pc.open || bc.open) return; hovered = s; if (reduce) render(); };
     const off = () => { if (hovered === s) hovered = null; if (reduce) render(); };
     s.el.addEventListener('pointerenter', on); s.el.addEventListener('pointerleave', off);
     s.el.addEventListener('focus', on); s.el.addEventListener('blur', off);
   }
 
+  // ---------- the PC: click it and the camera pushes in on its screen, which becomes a menu ----------
+  const CW = 56, CH = 36; // the menu is drawn at four times the scene's resolution so the letters can be read
+  const CRT_OPTS = [
+    { label: 'BUILDS', href: 'tech-projects.html#builds', y: 9 },
+    { label: 'SOFTWARE', href: 'tech-projects.html#software', y: 16 },
+    { label: 'OTHER', href: 'tech-projects.html#other', y: 23 },
+    { label: 'BACK', y: 30 },
+  ];
+  const crt = document.createElement('canvas');
+  crt.id = 'crt'; crt.width = CW; crt.height = CH; crt.setAttribute('aria-hidden', 'true');
+  stage.appendChild(crt);
+  const cctx = crt.getContext('2d');
+  const crtEls = CRT_OPTS.map((o, i) => {
+    const el = document.createElement(o.href ? 'a' : 'button');
+    el.className = 'crt-opt'; el.textContent = o.label;
+    if (o.href) el.href = o.href; else el.type = 'button';
+    el.addEventListener('pointerenter', () => { pc.sel = i; });
+    el.addEventListener('pointerleave', () => { if (pc.sel === i) pc.sel = -1; });
+    el.addEventListener('focus', () => { pc.sel = i; });
+    el.addEventListener('blur', () => { if (pc.sel === i) pc.sel = -1; });
+    stage.appendChild(el);
+    return el;
+  });
+  const pc = { open: false, amt: 0, sel: -1, t0: 0, ready: false };
+  function setPc(open) {
+    pc.open = open; stage.classList.toggle('pc-open', open);
+    if (open) { hovered = null; pc.sel = -1; pc.ready = false; pc.focused = false; pc.rv = -1; pc.t0 = performance.now(); }
+    else { pc.sel = -1; stage.classList.remove('pc-ready'); if (crtEls.includes(document.activeElement)) document.activeElement.blur(); }
+  }
+  const BOOT_MS = 2000, ROW_MS = 260; // the screen "boots", then the header and each choice appear one after another
+  crtEls[3].addEventListener('click', () => setPc(false));
+  document.getElementById('spot-pc').addEventListener('click', e => {
+    if (reduce || e.button || e.ctrlKey || e.metaKey || e.shiftKey) return; // reduced motion and new-tab clicks just follow the link
+    e.preventDefault(); setPc(true);
+  });
+  addEventListener('keydown', e => { if (e.key === 'Escape' && pc.open) setPc(false); });
+  addEventListener('pointerdown', e => { if (pc.open && !crtEls.includes(e.target)) setPc(false); });
+
+  function placeCrt() {
+    const nowMs = performance.now();
+    if (pc.open && !pc.ready && nowMs - pc.t0 > BOOT_MS) { pc.ready = true; pc.readyAt = nowMs; stage.classList.add('pc-ready'); }
+    pc.rv = pc.ready ? ((nowMs - pc.readyAt) / ROW_MS) | 0 : -1; // 0: header shown, 1: first choice, ...
+    if (pc.open && pc.rv >= 1 && !pc.focused) { pc.focused = true; pc.sel = 0; crtEls[0].focus({ preventScroll: true }); }
+    const l = pcScr.x * S, t = pcScr.y * S, w = 14 * S, h = 9 * S;
+    const st = crt.style;
+    st.left = l + 'px'; st.top = t + 'px'; st.width = w + 'px'; st.height = h + 'px';
+    st.display = pc.amt > 0.26 ? 'block' : 'none';
+    st.opacity = Math.min(1, (pc.amt - 0.25) / 0.5).toFixed(3);
+    if (pc.open) CRT_OPTS.forEach((o, i) => {
+      const s = crtEls[i].style;
+      s.visibility = pc.rv > i ? 'visible' : 'hidden';
+      s.left = l + 'px'; s.width = w + 'px'; s.top = t + (o.y - 1) / CH * h + 'px'; s.height = 7 / CH * h + 'px';
+    });
+  }
+  function drawCrt() {
+    if (pc.amt <= 0.26) return;
+    const t = performance.now() / 1000, tick = (t * 12) | 0, BG = '#12301f', G = '#5dff8a', DIM = '#2f8a4a';
+    cctx.fillStyle = BG; cctx.fillRect(0, 0, CW, CH);
+    const text = (str, x, y, col, glitch) => {
+      cctx.fillStyle = col;
+      for (const ch of str) {
+        if (ch !== ' ') for (let i = 0; i < 15; i++) {
+          if (GLYPH[ch][i] !== '1') continue;
+          const r = (i / 3) | 0, gx = x + (i % 3) + (glitch && hash(r, tick + y, 9) < 0.06 ? 1 : 0); // only the dim header slips; the options stay solid
+          if (glitch && hash(gx, r * 7 + y + tick, 3) < 0.03) continue;                              // pixels drop out and come back
+          cctx.fillRect(gx, y + r, 1, 1);
+        }
+        x += ch === ' ' ? 3 : 4;
+      }
+    };
+    if (!pc.ready && pc.open) { // boot message, with a bar that fills while it waits
+      text('INITIALIZING', 1, 12, G, false);
+      const dots = 1 + (((t * 3) | 0) % 3); cctx.fillStyle = G;
+      for (let d = 0; d < dots; d++) cctx.fillRect(49 + d * 2, 16, 1, 1);
+      cctx.fillStyle = DIM; cctx.fillRect(8, 22, 40, 3);
+      cctx.fillStyle = BG; cctx.fillRect(9, 23, 38, 1);
+      cctx.fillStyle = G; cctx.fillRect(9, 23, Math.min(38, ((performance.now() - pc.t0) / BOOT_MS * 38) | 0), 1);
+      return;
+    }
+    text('TECH PROJECTS', 2, 1, DIM, false);
+    CRT_OPTS.forEach((o, i) => {
+      if (pc.open && pc.rv <= i) return;
+      if (pc.sel === i) { cctx.fillStyle = G; cctx.fillRect(1, o.y - 1, CW - 2, 7); text('>' + o.label, 3, o.y, BG); }
+      else text(' ' + o.label, 3, o.y, G);
+    });
+  }
+
+  const cam = { cx: 0, cy: 0, zo: 1, vy: 0.5, live: false }; // the view the camera pushes in to, in page pixels
+  const pcView = () => ({
+    cx: (pcScr.x + 7) * S, cy: (pcScr.y + 4.5) * S, vy: 0.46,
+    zo: Math.max(1.5, Math.min(innerWidth * 0.5 / (14 * S), innerHeight * 0.48 / (9 * S))),
+  });
+
+  // ---------- the briefcase: click it and its bottom drops open on a clipped-in resume and a strapped-in phone ----------
+  const LINKEDIN_URL = 'https://www.linkedin.com/in/avery-lee-womble-p-e-0b1449158';
+  const BCK = 3, BW = 180, BH = 144; // the open case is drawn at three times the scene's resolution so it holds up when zoomed
+  const FW = 69, FH = 30;            // the panel that drops down, in those pixels
+  const PAPER = { x: 100, y: 71, w: 18, h: 20 }; // where the papers rest, in their side pocket; they slide out to the left when highlighted
+  const SLIDE = 14;
+  const HIT = { x: 82, y: 68, w: 44, h: 28 };    // the pocket and the room the papers slide through
+  const bcv = document.createElement('canvas');
+  bcv.id = 'case'; bcv.width = BW; bcv.height = BH; bcv.setAttribute('aria-hidden', 'true');
+  stage.appendChild(bcv);
+  const cc = bcv.getContext('2d');
+  const bc = { open: false, amt: 0, vis: false, t0: 0, phi: Math.PI, phiV: 0, fell: false, slide: 0, mode: 'case', hot: null,
+               ready: false, shown: false, paperT0: 0, em: { fast: 0, slow: 0 } };
+  const mkFace = () => { const c = document.createElement('canvas'); c.width = FW; c.height = FH; return c; };
+  const faceOut = mkFace(), faceIn = mkFace();
+  {
+    const f = faceOut.getContext('2d'), F = (x, y, w, h, c) => { f.fillStyle = c; f.fillRect(x, y, w, h); };
+    F(0, 0, FW, FH, '#3a231f'); F(1, 0, FW - 2, FH - 1, '#8c5431'); F(1, FH - 10, FW - 2, 9, '#6c3d27');
+    F(1, FH - 7, 6, 6, '#3a231f'); F(FW - 7, FH - 7, 6, 6, '#3a231f'); F(1, 3, 6, 6, '#ad6f40'); F(FW - 7, 3, 6, 6, '#ad6f40');
+    F(12, 0, 6, 4, '#e3b341'); F(51, 0, 6, 4, '#e3b341');
+  }
+  const paperSpr = document.createElement('canvas'); paperSpr.width = 18; paperSpr.height = 20;
+  {
+    const f = paperSpr.getContext('2d'), F = (x, y, w, h, c) => { f.fillStyle = c; f.fillRect(x, y, w, h); };
+    F(1, 1, 17, 19, '#c9bfa5'); F(2, 2, 15, 17, '#e4d9bd');                 // the sheet behind
+    F(0, 0, 17, 19, '#c9bfa5'); F(1, 1, 15, 17, '#f4ecd8');
+    F(3, 4, 8, 2, '#3a3a44'); F(3, 7, 5, 1, '#8a8576'); F(3, 9, 12, 1, '#c98a12');
+    for (let i = 0; i < 3; i++) F(3, 11 + i * 3, 6 + ((hash(i, 3, 7) * 6) | 0), 1, i === 0 ? '#7d7766' : '#a79f8a');
+  }
+  function paintInner(hot) { // the inside of the panel: lining, the phone, and the black elastic holding it
+    const f = faceIn.getContext('2d'), F = (x, y, w, h, c) => { f.fillStyle = c; f.fillRect(x, y, w, h); };
+    const px = 24, py = 9, blue = hot ? '#1a7fe0' : '#0a66c2';
+    F(0, 0, FW, FH, '#3a231f'); F(1, 0, FW - 2, FH - 1, '#2a1517');
+    for (let x = 3; x < FW - 3; x += 4) { F(x, FH - 3, 2, 1, '#4d2c2c'); F(x, 2, 2, 1, '#4d2c2c'); }
+    if (hot) F(px - 4, py - 5, 29, 21, '#e9b52f');
+    F(px - 1, py - 1, 23, 13, '#0d0e12'); F(px, py, 21, 11, '#23262d'); F(px + 1, py + 1, 19, 9, blue);
+    F(px + 7, py + 2, 7, 7, '#ffffff');
+    const lx = px + 8, ly = py + 3;
+    F(lx, ly, 1, 1, blue); F(lx, ly + 2, 1, 3, blue); F(lx + 2, ly + 2, 1, 3, blue); F(lx + 3, ly + 2, 2, 1, blue); F(lx + 4, ly + 3, 1, 2, blue);
+    for (const sx of [px + 2, px + 14]) { // two short bands of black elastic wrapped around the phone
+      F(sx, py - 3, 5, 17, '#0a0a0c'); F(sx + 1, py - 3, 1, 17, '#1d1e24'); F(sx + 3, py - 3, 1, 17, '#15161a');
+      F(sx, py - 3, 5, 1, '#2a2c33'); F(sx, py + 13, 5, 1, '#2a2c33');
+    }
+  }
+  const mkItem = (id, label, href) => {
+    const el = document.createElement('a');
+    el.className = 'spot bc-item'; el.id = id; el.href = href;
+    el.setAttribute('aria-label', label); // no visible label: it would be scaled up with the zoom
+    stage.appendChild(el);
+    return el;
+  };
+  const paperEl = mkItem('bc-paper', 'Resume', 'resume.html');
+  const phoneEl = mkItem('bc-phone', 'LinkedIn', LINKEDIN_URL);
+  phoneEl.target = '_blank'; phoneEl.rel = 'noopener noreferrer';
+  for (const [el, name] of [[paperEl, 'paper'], [phoneEl, 'phone']]) {
+    const on = () => { bc.hot = name; }, off = () => { if (bc.hot === name) bc.hot = null; };
+    el.addEventListener('pointerenter', on); el.addEventListener('pointerleave', off);
+    el.addEventListener('focus', on); el.addEventListener('blur', off);
+  }
+  const PHONE = { x: 57 + 24, y: 96 + 9, w: 21, h: 11 }; // where the phone hangs once the panel is down
+  function bcView() {
+    const g = caseGeom(), rl = g.cx - 30, rt = g.top - 16;
+    const zc = Math.min(innerWidth * 0.5 / (28 * S), innerHeight * 0.46 / (30 * S));
+    if (bc.mode === 'paper') { // a gentle push-in toward the paper; the page itself grows out of it
+      return { cx: (rl + (PAPER.x - SLIDE + PAPER.w / 2) / BCK) * S, cy: (rt + (PAPER.y + PAPER.h / 2) / BCK) * S, vy: 0.5, zo: zc * 1.45 };
+    }
+    return { cx: (rl + 30) * S, cy: (rt + 27) * S, vy: 0.5, zo: zc };
+  }
+  function setBc(open) {
+    bc.open = open; stage.classList.toggle('bc-open', open);
+    if (open) { hovered = null; bc.t0 = performance.now(); bc.mode = 'case'; bc.ready = false; bc.shown = false; bc.fell = false; loadResume(); }
+    else { closeResume(); bc.hot = null; bc.ready = false; stage.classList.remove('bc-ready'); }
+  }
+  document.getElementById('spot-business').addEventListener('click', e => {
+    if (reduce || e.button || e.ctrlKey || e.metaKey || e.shiftKey) return; // reduced motion and new-tab clicks just follow the link
+    e.preventDefault(); setBc(true);
+  });
+  paperEl.addEventListener('click', e => {
+    if (e.button || e.ctrlKey || e.metaKey || e.shiftKey || !resumeNode) return; // without the text loaded, it is simply a link to the page
+    e.preventDefault(); bc.hot = null; bc.mode = 'paper'; bc.shown = false; bc.paperT0 = performance.now();
+  });
+  addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    if (resumeEl.classList.contains('on')) closeResume(); else if (bc.open) setBc(false);
+  });
+  addEventListener('pointerdown', e => {
+    if (bc.open && !resumeEl.classList.contains('on') && !paperEl.contains(e.target) && !phoneEl.contains(e.target)) setBc(false);
+  });
+
+  // the sheet that fills the window and "decrypts" into the real resume (its text comes from resume.html)
+  const resumeEl = document.createElement('div');
+  resumeEl.id = 'resume'; resumeEl.setAttribute('role', 'dialog'); resumeEl.setAttribute('aria-label', 'Resume');
+  const rclose = document.createElement('button'); rclose.className = 'rclose'; rclose.type = 'button'; rclose.textContent = 'CLOSE';
+  const rpage = document.createElement('div'); rpage.className = 'rpage resume';
+  resumeEl.append(rclose, rpage); document.body.appendChild(resumeEl);
+  let resumeNode = null, resumeAsked = false, scrId = 0;
+  function loadResume() {
+    if (resumeAsked) return;
+    resumeAsked = true;
+    fetch('resume.html').then(r => r.text()).then(t => {
+      const a = new DOMParser().parseFromString(t, 'text/html').getElementById('resume-body');
+      if (a) resumeNode = document.importNode(a, true);
+    }).catch(() => { resumeAsked = false; });
+  }
+  function showResume() {
+    const from = paperEl.getBoundingClientRect(), s = rpage.style;
+    rpage.replaceChildren(...Array.from(resumeNode.childNodes, n => n.cloneNode(true)));
+    resumeEl.classList.add('on');
+    s.transition = 'none'; s.overflow = 'hidden';
+    s.left = from.left + 'px'; s.top = from.top + 'px'; s.width = from.width + 'px'; s.height = from.height + 'px';
+    rpage.offsetWidth; // let the starting size apply before it grows
+    s.transition = '';
+    const w = Math.min(innerWidth * 0.94, 800), h = innerHeight * 0.92;
+    s.left = (innerWidth - w) / 2 + 'px'; s.top = (innerHeight - h) / 2 + 'px'; s.width = w + 'px'; s.height = h + 'px';
+    setTimeout(() => { s.overflow = 'auto'; }, 700);
+    scramble();
+  }
+  function closeResume() {
+    scrId++; resumeEl.classList.remove('on'); rpage.classList.remove('enc'); bc.shown = false;
+    if (bc.open) bc.mode = 'case';
+  }
+  function scramble() {
+    const id = ++scrId, nodes = [], walk = document.createTreeWalker(rpage, NodeFilter.SHOW_TEXT);
+    let n, total = 0;
+    while ((n = walk.nextNode())) if (n.nodeValue.trim()) { nodes.push({ n, s: n.nodeValue }); total += n.nodeValue.length; }
+    let at = 0;
+    for (const o of nodes) { o.t = Array.from(o.s, (_, i) => (at + i) / total * 0.55 + Math.random() * 0.45); at += o.s.length; }
+    const POOL = '01ABCDEF9#%&*+=<>/\\|{}[]', D = 2600, t0 = performance.now();
+    rpage.classList.add('enc'); rpage.setAttribute('aria-busy', 'true');
+    const tick = () => {
+      if (id !== scrId) return;
+      const f = (performance.now() - t0) / D;
+      for (const o of nodes) {
+        let out = '';
+        for (let i = 0; i < o.s.length; i++) { const ch = o.s[i]; out += ch === ' ' || ch === '\n' || f >= o.t[i] ? ch : POOL[(Math.random() * POOL.length) | 0]; }
+        if (o.n.nodeValue !== out) o.n.nodeValue = out;
+      }
+      if (f < 1) requestAnimationFrame(tick); else { rpage.classList.remove('enc'); rpage.removeAttribute('aria-busy'); }
+    };
+    tick();
+  }
+  rclose.addEventListener('click', () => closeResume());
+  resumeEl.addEventListener('pointerdown', e => { if (e.target === resumeEl) closeResume(); });
+
+  function stepBc(dt) {
+    const now = performance.now(), el = (now - bc.t0) / 1000, ex = t => 1 - Math.exp(-dt / t);
+    bc.amt += ((bc.open ? 1 : 0) - bc.amt) * ex(bc.open ? 0.3 : 0.2);
+    if (bc.amt < 0.002) bc.amt = 0;
+    if (bc.open && el > 0.4) { // the latches let go: the panel falls, swings through the bottom, recoils, and dangles
+      if (!bc.fell) { bc.fell = true; bc.phi = Math.PI - 0.03; bc.phiV = -0.8; }
+      const n = Math.ceil(dt / 0.008), h = dt / n;
+      for (let i = 0; i < n; i++) { bc.phiV += (-60 * Math.sin(bc.phi) - 5 * bc.phiV) * h; bc.phi += bc.phiV * h; }
+    } else if (!bc.open) { bc.phi += (Math.PI - bc.phi) * ex(0.18); bc.phiV = 0; }
+    bc.slide += (((bc.ready && (bc.hot === 'paper' || bc.mode === 'paper')) ? 1 : 0) - bc.slide) * ex(0.16); // the papers slide out of their pocket
+    const on = bc.ready && bc.hot && bc.mode === 'case';
+    bc.em.fast += ((on ? 0.04 : 0) - bc.em.fast) * ex(on ? 0.14 : 0.22);
+    bc.em.slow += ((on ? 0.012 : 0) - bc.em.slow) * ex(on ? 4 : 0.22);
+    if (bc.open && !bc.ready && bc.fell && el > 1.3 && Math.abs(bc.phi) < 0.08 && Math.abs(bc.phiV) < 0.4) { bc.ready = true; stage.classList.add('bc-ready'); }
+    if (bc.open && bc.mode === 'paper' && !bc.shown && now - bc.paperT0 > 1000) { bc.shown = true; showResume(); }
+    bc.vis = bc.open || bc.amt > 0.01 || bc.phi < Math.PI - 0.02;
+  }
+  function drawCase() {
+    if (!bc.vis) { bcv.style.display = 'none'; return; }
+    const g = caseGeom(), rl = g.cx - 30, rt = g.top - 16;
+    const st = bcv.style;
+    st.display = 'block'; st.left = rl * S + 'px'; st.top = rt * S + 'px'; st.width = 60 * S + 'px'; st.height = 48 * S + 'px';
+    cc.clearRect(0, 0, BW, BH);
+    const R = (x, y, w, h, col) => { cc.fillStyle = col; cc.fillRect(Math.round(x * BCK), Math.round(y * BCK), Math.max(1, Math.round(w * BCK)), Math.max(1, Math.round(h * BCK))); };
+    const B = (x, y, w, h, col) => { cc.fillStyle = col; cc.fillRect(Math.round(x), Math.round(y), w, h); };
+    const dk = '#3a231f', mid = '#8c5431', hi = '#ad6f40', lo = '#6c3d27', brass = '#e3b341', hd = '#2b1c1d', rope = '#8a745a';
+    // rope, handle, and the closed case, exactly as it hangs in the tree
+    let x0 = Math.round(g.a[0] - rl), y0 = Math.round(g.a[1] - rt), x1 = 30, y1 = 11;
+    const dx = Math.abs(x1 - x0), dy = -Math.abs(y1 - y0), sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+    for (let err = dx + dy; ; ) {
+      R(x0, y0, 1, 1, rope);
+      if (x0 === x1 && y0 === y1) break;
+      const e2 = 2 * err;
+      if (e2 >= dy) { err += dy; x0 += sx; }
+      if (e2 <= dx) { err += dx; y0 += sy; }
+    }
+    R(25, 11, 11, 2, hd); R(25, 13, 2, 3, hd); R(34, 13, 2, 3, hd);
+    R(18, 16, 25, 17, dk); R(19, 17, 23, 15, mid); R(19, 17, 23, 2, hi); R(19, 29, 23, 3, lo); R(19, 21, 23, 1, dk);
+    R(23, 20, 2, 3, brass); R(36, 20, 2, 3, brass); R(19, 17, 2, 2, lo); R(40, 17, 2, 2, lo);
+    R(19, 30, 2, 2, dk); R(40, 30, 2, 2, dk); R(21, 24, 1, 1, hi); R(22, 25, 1, 1, hi);
+    if (bc.phi < Math.PI - 0.02) {
+      R(19, 22, 23, 10, '#2a1517'); R(19, 22, 23, 1, '#43262a'); R(19, 23, 23, 1, '#35201f'); // the lining
+      const pv = bc.phi < 0 ? bc.phi * 1.7 : bc.phi, cs = Math.cos(pv), hh = Math.round(FH * Math.abs(cs));
+      // the resume papers lie sideways in a little pocket; highlighted, they slide out and turn upright
+      if (bc.phi < Math.PI - 0.25) {
+        const sl = bc.slide, e = sl * sl * (3 - 2 * sl), hotP = bc.hot === 'paper' && bc.mode === 'case';
+        cc.save(); cc.imageSmoothingEnabled = false;
+        cc.translate(Math.round(110 - 15 * sl), 81);
+        cc.rotate(-Math.PI / 2 * (1 - e) + Math.sin(T * 2.1) * 0.035 * sl * sl); // the free end flutters once it is out
+        if (hotP) { cc.fillStyle = '#e9b52f'; cc.fillRect(-12, -13, 24, 26); }
+        cc.drawImage(paperSpr, -9, -10);
+        cc.restore();
+        B(103, 69, 23, 25, '#3a231f'); B(104, 70, 21, 23, '#5b3322'); B(104, 70, 21, 1, '#7a4a2e');           // the pocket
+        for (let y = 72; y < 92; y += 4) B(122, y, 1, 2, '#8c6a4a');
+        B(103, 69, 5, 25, '#3a231f'); B(104, 70, 3, 23, '#7a4a2e'); B(107, 70, 1, 23, '#4a2a1a'); B(104, 79, 2, 3, '#e3b341'); // its flap, with a brass snap
+      }
+      // the panel, hinged along the bottom edge: it falls toward you, then hangs below with its inside showing
+      if (hh >= 1) {
+        cc.save(); cc.imageSmoothingEnabled = false;
+        if (cs > 0) {
+          paintInner(bc.hot === 'phone' && bc.mode === 'case');
+          cc.drawImage(faceIn, 57, 96, FW, hh);
+        } else cc.drawImage(faceOut, 57, 96 - hh, FW, hh);
+        cc.restore();
+      }
+      // the name of whatever is highlighted, in pixel type under the case
+      if (bc.ready && bc.mode === 'case' && bc.hot) {
+        const txt = bc.hot === 'paper' ? 'RESUME' : 'LINKEDIN', w = txt.length * 4 + 5, lx = 90 - (w >> 1), ly = 129;
+        B(lx, ly, w, 11, '#26242b'); B(lx + 1, ly + 1, w - 2, 9, '#ffffff');
+        cc.fillStyle = '#26242b';
+        let x = lx + 3;
+        for (const ch of txt) { const g = GLYPH[ch]; for (let i = 0; i < 15; i++) if (g[i] === '1') cc.fillRect(x + (i % 3), ly + 3 + ((i / 3) | 0), 1, 1); x += 4; }
+      }
+      // clickable areas follow the paper and the phone
+      const put = (el, r, rx) => {
+        const s = el.style;
+        s.left = rl * S + r.x * S / BCK + 'px'; s.top = rt * S + r.y * S / BCK + 'px';
+        s.width = r.w * S / BCK + 'px'; s.height = r.h * S / BCK + 'px';
+      };
+      put(paperEl, HIT); put(phoneEl, PHONE);
+    }
+  }
+
   // ---------- hover emphasis: a slight push-in, fast at first, then slower and slower ----------
   const zoom = { fast: 0, slow: 0, z: 1, fx: 0, fy: 0, tx: 0, ty: 0 };
-
-  // ---------- mouse pan: the whole scene drifts a little as the cursor moves, like looking around ----------
-  const pan = { x: 0, y: 0, tx: 0, ty: 0 };
-
-  // ---------- focus: fly in on the hanging computer (driven by terminal.js) ----------
-  const focus = { want: false, k: 0 };
-  const FOCUS_IN = 1.25, FOCUS_OUT = 0.9; // seconds
-  const view = { ox: 0, oy: 0, tx: 0, ty: 0, zz: 1 }; // the transform last applied to the stage
-  const focusE = () => focus.k * focus.k * (3 - 2 * focus.k); // eased 0..1
-  // the computer sways in the breeze, but settles as the camera flies in so the screen holds still
-  const pcSwing = () => (Math.sin(T * 1.1) * 3 + Math.sin(T * 0.43 + 2) * 1.5) * (1 - focusE());
-  function pcCenter() { // centre of the monitor's screen, in scene pixels
-    return [bx + PCX + Math.round(pcSwing()) + 14, by + PCY - 20.5];
-  }
-  function screenRect() { // the monitor's screen as it is on the window right now, in CSS pixels
-    const sx = bx + PCX + Math.round(pcSwing()) + 7, sy = by + PCY - 25;
-    return { x: view.ox + view.tx + view.zz * sx * S, y: view.oy + view.ty + view.zz * sy * S, w: view.zz * 14 * S, h: view.zz * 9 * S };
-  }
-  const PAN_Y_SCALE = 0.4;    // vertical drift relative to horizontal; keeps the ground and bike on screen
-  const PAN_FRACTION = 0.09; // max drift as a fraction of the window's shorter side (raise for a stronger pan)
-  if (!reduce) {
-    addEventListener('pointermove', e => {
-      if (e.pointerType === 'touch') return; // fingers don't hover, so only mouse and pen pan
-      const nx = clamp(e.clientX / Math.max(innerWidth, 1) * 2 - 1, -1, 1);
-      const ny = clamp(e.clientY / Math.max(innerHeight, 1) * 2 - 1, -1, 1);
-      const max = Math.min(innerWidth, innerHeight) * PAN_FRACTION;
-      pan.tx = -nx * max; pan.ty = -ny * max * PAN_Y_SCALE; // scene moves opposite the cursor
-    });
-    document.documentElement.addEventListener('mouseleave', () => { pan.tx = 0; pan.ty = 0; });
-  }
   function stepZoom(dt) {
-    const full = 0.14;
-    const on = !!hovered && !focus.want;
+    const full = 0.09;
+    const on = !!hovered;
     zoom.fast += ((on ? full * 0.78 : 0) - zoom.fast) * (1 - Math.exp(-dt / (on ? 0.14 : 0.22)));
     zoom.slow += ((on ? full * 0.22 : 0) - zoom.slow) * (1 - Math.exp(-dt / (on ? 4 : 0.22)));
     let z = 1 + zoom.fast + zoom.slow;
@@ -1101,34 +1400,22 @@
       if (zoom.z === 1) { zoom.fx = cx; zoom.fy = cy; }
       else { const k = 1 - Math.exp(-dt / 0.12); zoom.fx += (cx - zoom.fx) * k; zoom.fy += (cy - zoom.fy) * k; }
     }
-    zoom.z = z; zoom.tx = zoom.fx * (1 - z); zoom.ty = zoom.fy * (1 - z);
-    const k = 1 - Math.exp(-dt / 0.35); // glide toward the pan target
-    pan.x += (pan.tx - pan.x) * k; pan.y += (pan.ty - pan.y) * k;
-    if (Math.abs(pan.x - pan.tx) < 0.01) pan.x = pan.tx;
-    if (Math.abs(pan.y - pan.ty) < 0.01) pan.y = pan.ty;
-
-    // fly-in: zoom about a fixed point until the monitor fills most of the window
-    focus.k = clamp(focus.k + (focus.want ? dt / FOCUS_IN : -dt / FOCUS_OUT), 0, 1);
-    const e = focusE();
-    let zz = z, tx = zoom.tx, ty = zoom.ty;
-    if (e > 0) {
-      const [pcx, pcy] = pcCenter();
-      const fill = innerWidth < 640 ? 0.94 : 0.72; // how much of the window the screen fills
-      const Zf = Math.min(innerWidth * fill / (14 * S), innerHeight * fill / (9 * S));
-      const txF = innerWidth / 2 - pcx * S * Zf, tyF = innerHeight / 2 - pcy * S * Zf;
-      if (Math.abs(z - Zf) > 1e-3) {
-        const px = (txF - tx) / (z - Zf), py = (tyF - ty) / (z - Zf); // the point that stays put
-        const sx = z * px + tx, sy = z * py + ty;
-        zz = z * Math.pow(Zf / z, e);
-        tx = sx - zz * px; ty = sy - zz * py;
-      }
+    let tx = zoom.fx * (1 - z), ty = zoom.fy * (1 - z);
+    pc.amt += ((pc.open ? 1 : 0) - pc.amt) * (1 - Math.exp(-dt / (pc.open ? 0.3 : 0.2)));
+    if (pc.amt < 0.002) pc.amt = 0;
+    const want = pc.open ? pcView() : bc.open ? bcView() : null, camAmt = Math.max(pc.amt, bc.amt);
+    if (want) {
+      if (!cam.live) { Object.assign(cam, want); cam.live = true; }
+      else { const k = 1 - Math.exp(-dt / 0.3); for (const f of ['cx', 'cy', 'zo', 'vy']) cam[f] += (want[f] - cam[f]) * k; }
     }
-    const ox = pan.x * (1 - e), oy = pan.y * (1 - e); // the pan fades out as we fly in
-    const shifted = Math.abs(ox) > 0.005 || Math.abs(oy) > 0.005;
-    view.ox = ox; view.oy = oy; view.zz = zz; view.tx = zz === 1 ? 0 : tx; view.ty = zz === 1 ? 0 : ty;
-    if (zz === 1 && !shifted) stage.style.transform = 'none';
-    else stage.style.transform = (shifted ? `translate(${ox.toFixed(2)}px,${oy.toFixed(2)}px) ` : '') +
-      (zz === 1 ? '' : `translate(${tx.toFixed(2)}px,${ty.toFixed(2)}px) scale(${zz.toFixed(4)})`);
+    if (camAmt === 0) cam.live = false;
+    if (camAmt > 0) { // blend towards a view that fills the window with whatever was clicked
+      const zo = cam.zo * (1 + (bc.open ? bc.em.fast + bc.em.slow : 0));
+      z += (zo - z) * camAmt;
+      tx += (innerWidth / 2 - cam.cx * zo - tx) * camAmt; ty += (innerHeight * cam.vy - cam.cy * zo - ty) * camAmt;
+    }
+    zoom.z = z; zoom.tx = tx; zoom.ty = ty;
+    stage.style.transform = z === 1 ? 'none' : `translate(${zoom.tx.toFixed(2)}px,${zoom.ty.toFixed(2)}px) scale(${z.toFixed(4)})`;
   }
 
   function layout() {
@@ -1189,30 +1476,27 @@
     const dt = Math.min(0.05, (now - prev) / 1000 || 0);
     prev = now;
     // while the pointer rests on something, the whole scene eases into slow motion
-    slow += ((hovered && !focus.want ? 0.25 : 1) - slow) * (1 - Math.exp(-dt / 0.25));
+    slow += ((hovered || pc.open || bc.open ? 0.25 : 1) - slow) * (1 - Math.exp(-dt / 0.25));
     const sdt = dt * slow;
     T += sdt;
-    stepWind(sdt); stepLeaves(sdt); stepSmoke(sdt); stepZaps(sdt); stepBus(sdt); stepCat(sdt); stepZoom(dt);
-    if (window.__scene && window.__scene.onFrame) window.__scene.onFrame(); // lets terminal.js follow the screen
+    stepWind(sdt); stepLeaves(sdt); stepSmoke(sdt); stepZaps(sdt); stepBus(sdt); stepCat(sdt); stepBc(dt); stepZoom(dt);
     updateDyn();
     render();
+    placeCrt(); drawCrt(); drawCase();
     requestAnimationFrame(frame);
   }
 
   const track = e => {
-    mouse.x = (e.clientX - pan.x - zoom.tx) / zoom.z / S;
-    mouse.y = (e.clientY - pan.y - zoom.ty) / zoom.z / S;
+    mouse.x = (e.clientX - zoom.tx) / zoom.z / S;
+    mouse.y = (e.clientY - zoom.ty) / zoom.z / S;
     mouse.last = T;
   };
   addEventListener('pointermove', track);
   addEventListener('pointerdown', track);
   addEventListener('resize', () => { layout(); if (reduce) render(); });
 
-  window.__scene = { bus, cat, render, focus: on => { focus.want = !!on; }, focusK: () => focus.k, screenRect, onFrame: null }; // handle for the console and terminal.js
+  window.__scene = { bus, cat, render, bc }; // handle for poking at the scene from the console
   layout();
   if (reduce) { T = 2; bus.wait = 0; bus.x = 30; updateDyn(); render(); } // still scene: bus parked where it can be clicked
   else requestAnimationFrame(frame);
 })();
-
-// Terminal for the tech-projects computer. Optional: if terminal.js is missing, the computer just links to tech-projects.html.
-{ const t = document.createElement('script'); t.src = 'terminal.js'; document.body.appendChild(t); }
