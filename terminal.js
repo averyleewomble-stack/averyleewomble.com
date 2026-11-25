@@ -37,15 +37,16 @@
       url: null
     },
     {
-      title: 'Software Project',
+      title: 'LiDAR to CAD',
       tag: 'SOFTWARE',
-      year: '----',
-      summary: '[PLACEHOLDER] Replace this with a real project.',
+      year: '2026',
+      summary: 'Draw a boundary or drop a KMZ, get georeferenced lidar contours for CAD.',
       details: [
-        '[PLACEHOLDER] What it does, what it is built with, and a link if there is one.',
-        'Add a url to a project and an OPEN FULL PAGE option appears for it.'
+        'Draw a site boundary or upload a KMZ, and the tool pulls USGS 3DEP lidar-derived bare-earth elevation for that area.',
+        'It traces minor and major contours, cuts them to the boundary, and exports a DXF in Texas State Plane coordinates, ready for Civil 3D.',
+        'Runs entirely in the browser. No server, no account.'
       ],
-      url: null
+      url: 'lidar/'
     }
   ];
 
