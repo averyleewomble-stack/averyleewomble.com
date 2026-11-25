@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LiDAR to CAD</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/leaflet.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@600&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* VOICE: a field engineer's instrument — calm, exact, no decoration
+   IDEA: a USGS quad sheet — brown contour ink on white paper, map is the work surface
+   PICTURE: the live map fills the screen; the boundary and contours draw on it
+   COLOUR and TYPE: white paper, ink, contour brown #9a4f24 as the one accent; Barlow (highway/survey lettering)
+   LAYOUT: fixed control column left, map right; stacks map-over-controls under 760px */
+:root{color-scheme:light dark;--bg:light-dark(#ffffff,#141716);--ink:light-dark(#1b1e1c,#e7e5df);--mute:light-dark(#5d635f,#9ba19c);--line:light-dark(#dfe1dc,#2b302d);--field:light-dark(#f4f5f2,#1d211f);--brown:light-dark(#9a4f24,#d9844f);--ok:light-dark(#2f6b3a,#7cc28a);--err:light-dark(#a3261b,#ff8a7a)}
+:root[data-theme=light]{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box;min-width:0}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 Barlow,system-ui,sans-serif;overflow:hidden}
+.app{display:grid;grid-template-columns:380px minmax(0,1fr);height:100vh}
+.panel{overflow-y:auto;border-right:1px solid var(--line);padding:22px 22px 40px}
+#map{height:100%;background:#cfd3cc}
+h1{font:600 30px/1.05 "Barlow Semi Condensed",Barlow,sans-serif;margin:0 0 6px;color:var(--brown)}
+.sub{margin:0 0 8px;color:var(--mute)}
+section{border-top:1px solid var(--line);padding:16px 0 6px}
+h2{font:600 17px/1.2 "Barlow Semi Condensed",Barlow,sans-serif;margin:0 0 10px}
+label{display:block;margin:0 0 10px;font-size:13px;color:var(--mute)}
+label>input,label>select{display:block;width:100%;margin-top:4px}
+input,select,button{font:inherit;font-size:16px;color:var(--ink)}
+input,select{background:var(--field);border:1px solid var(--line);border-radius:6px;padding:9px 10px;min-height:44px}
+input:focus-visible,select:focus-visible,button:focus-visible{outline:2px solid var(--brown);outline-offset:2px}
+button{min-height:44px;padding:8px 14px;border-radius:6px;border:1px solid var(--line);background:var(--field);cursor:pointer;font-weight:500}
+button:hover{border-color:var(--brown)}
+button.primary{background:var(--brown);border-color:var(--brown);color:#fff;width:100%;font-weight:600}
+button.primary:disabled{opacity:.55;cursor:progress}
+button.ghost{background:none;border:none;color:var(--mute);padding:6px 0;min-height:32px;text-decoration:underline}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}.row>*{flex:1 1 0}
+.grid2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0 10px}
+.drop{border:1.5px dashed var(--line);border-radius:8px;padding:14px;text-align:center;cursor:pointer;color:var(--mute);margin-bottom:10px}
+.drop.on{border-color:var(--brown);color:var(--brown)}
+.drop input{display:none}
+.info{font-size:14px;margin:4px 0}
+.hint{font-size:13px;color:var(--mute);margin:-4px 0 10px}
+.check{display:flex;align-items:center;gap:8px;color:var(--ink);font-size:14px}
+.check input{width:20px;height:20px;min-height:0;margin:0}
+#status{font-size:14px;margin:10px 0;min-height:21px}
+#status.err{color:var(--err)}#status.ok{color:var(--ok)}
+.bar{height:4px;background:var(--line);border-radius:2px;overflow:hidden;margin-top:6px}
+.bar i{display:block;height:100%;width:0;background:var(--brown);transition:width .2s}
+@media(prefers-reduced-motion:reduce){.bar i{transition:none}}
+dl{display:grid;grid-template-columns:auto minmax(0,1fr);gap:3px 12px;font-size:14px;margin:8px 0 12px}
+dt{color:var(--mute)}dd{margin:0;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.src{font-size:13px;color:var(--mute);margin:0 0 10px}
+.note{font-size:13px;color:var(--mute);background:var(--field);border-radius:6px;padding:10px 12px;margin-top:12px}
+code{font-size:13px;background:var(--field);padding:1px 5px;border-radius:4px}
+.leaflet-container{font:13px Barlow,sans-serif}
+@media(max-width:760px){body{overflow:auto}.app{display:flex;flex-direction:column;height:auto}#map{height:58vh;order:-1}.panel{border-right:0;overflow:visible}}
+</style>
+</head>
+<body>
+<div class="app">
+<aside class="panel">
+  <h1>LiDAR to CAD</h1>
+  <p class="sub">USGS 3DEP bare-earth lidar, cut to your boundary and exported in Texas State Plane coordinates, ready for Civil 3D.</p>
+
+  <section>
+    <h2>Boundary</h2>
+    <div class="row">
+      <button id="btnPoly" type="button">Draw polygon</button>
+      <button id="btnRect" type="button">Draw rectangle</button>
+    </div>
+    <label class="drop" id="drop">
+      <input type="file" id="file" accept=".kmz,.kml,.geojson,.json">
+      <span>Drop a KMZ, KML or GeoJSON here, or click to browse</span>
+    </label>
+    <form id="searchForm" class="row">
+      <input id="q" placeholder="Find an address or place" aria-label="Find an address or place" style="flex:3 1 0">
+      <button type="submit">Go</button>
+    </form>
+    <div id="bInfo" class="info">No boundary yet. Drag the corner handles to adjust one after it's drawn.</div>
+    <button id="btnClear" class="ghost" type="button">Clear boundary</button>
+  </section>
+
+  <section>
+    <h2>Coordinate system</h2>
+    <label>NAD83 State Plane, US survey feet
+      <select id="zone">
+        <option value="2275">Texas North (4201) · TX83-NF</option>
+        <option value="2276">Texas North Central (4202) · TX83-NCF</option>
+        <option value="2277">Texas Central (4203) · TX83-CF</option>
+        <option value="2278" selected>Texas South Central (4204) · TX83-SCF</option>
+        <option value="2279">Texas South (4205) · TX83-SF</option>
+      </select>
+    </label>
+    <div id="zoneHint" class="hint">Vertical datum NAVD88, feet.</div>
+    <label>Grid-to-surface factor (multiplied)
+      <input id="csf" type="number" step="0.00000001" value="1.00000000" inputmode="decimal">
+    </label>
+    <p class="hint">Leave at 1 for grid coordinates. Enter the project's surface adjustment factor to output surface coordinates (scaled about 0,0).</p>
+  </section>
+
+  <section>
+    <h2>Surface and contours</h2>
+    <div class="grid2">
+      <label>Cell size (ft)
+        <select id="cell"><option>1</option><option>2</option><option selected>3</option><option>5</option><option>10</option></select>
+      </label>
+      <label>Buffer past boundary (ft)
+        <input id="buf" type="number" min="0" step="5" value="50">
+      </label>
+      <label>Minor interval (ft)
+        <select id="minor"><option>0.5</option><option selected>1</option><option>2</option><option>5</option></select>
+      </label>
+      <label>Major interval (ft)
+        <select id="major"><option>2</option><option selected>5</option><option>10</option><option>25</option></select>
+      </label>
+      <label>Smoothing
+        <select id="smooth"><option value="0">None</option><option value="1">Light</option><option value="3" selected>Medium</option><option value="6">Heavy</option></select>
+      </label>
+      <label>Simplify tolerance (ft)
+        <input id="tol" type="number" min="0" step="0.05" value="0.2">
+      </label>
+    </div>
+    <label class="check"><input id="lbl" type="checkbox" checked> Label major contours in the DXF</label>
+    <label>Point file spacing (ft), for building a TIN from points
+      <input id="ptsp" type="number" min="1" step="1" value="10">
+    </label>
+  </section>
+
+  <section>
+    <h2>Run and export</h2>
+    <label>Project name (used for file names)
+      <input id="pname" value="site-topo">
+    </label>
+    <button id="btnRun" class="primary" type="button">Fetch lidar and build contours</button>
+    <div id="status" role="status"></div>
+    <div class="bar"><i id="prog"></i></div>
+    <div id="results" hidden>
+      <dl id="stats"></dl>
+      <p id="srcInfo" class="src"></p>
+      <div class="row">
+        <button id="dlDxf" type="button">Download DXF</button>
+        <button id="dlZip" type="button">Full package (.zip)</button>
+      </div>
+      <p class="hint">The package adds a PNEZD point file, an Esri ASCII DEM grid and a README with the datum notes.</p>
+    </div>
+    <div class="note">
+      DXF opens straight into AutoCAD or Civil 3D at true State Plane coordinates. Run <code>SAVEAS</code> to make it a DWG, and set the drawing coordinate system to the zone code above. Elevations are the USGS 3DEP 1&nbsp;m bare-earth DEM, which is built from lidar ground returns. Where no lidar exists, USGS fills the gap with coarser data, so check the source line after each run.
+    </div>
+  </section>
+</aside>
+<main id="map"></main>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.11.0/proj4.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/geotiff@2.1.3/dist-browser/geotiff.js"></script>
+<script>
+// CORE-START  (pure functions: no DOM, no network)
+const FT_PER_M = 3937 / 1200; // US survey foot
+const ZONES = {
+  '2275': {name: 'NAD83 Texas North (4201), US ft', code: 'TX83-NF', def: '+proj=lcc +lat_1=36.18333333333333 +lat_2=34.65 +lat_0=34 +lon_0=-101.5 +x_0=200000.0001016002 +y_0=999999.9998983998 +ellps=GRS80 +datum=NAD83 +units=us-ft +no_defs'},
+  '2276': {name: 'NAD83 Texas North Central (4202), US ft', code: 'TX83-NCF', def: '+proj=lcc +lat_1=33.96666666666667 +lat_2=32.13333333333333 +lat_0=31.66666666666667 +lon_0=-98.5 +x_0=600000 +y_0=2000000 +ellps=GRS80 +datum=NAD83 +units=us-ft +no_defs'},
+  '2277': {name: 'NAD83 Texas Central (4203), US ft', code: 'TX83-CF', def: '+proj=lcc +lat_1=31.88333333333333 +lat_2=30.11666666666667 +lat_0=29.66666666666667 +lon_0=-100.3333333333333 +x_0=700000 +y_0=3000000 +ellps=GRS80 +datum=NAD83 +units=us-ft +no_defs'},
+  '2278': {name: 'NAD83 Texas South Central (4204), US ft', code: 'TX83-SCF', def: '+proj=lcc +lat_1=30.28333333333333 +lat_2=28.38333333333333 +lat_0=27.83333333333333 +lon_0=-99 +x_0=600000 +y_0=4000000 +ellps=GRS80 +datum=NAD83 +units=us-ft +no_defs'},
+  '2279': {name: 'NAD83 Texas South (4205), US ft', code: 'TX83-SF', def: '+proj=lcc +lat_1=27.83333333333333 +lat_2=26.16666666666667 +lat_0=25.66666666666667 +lon_0=-98.5 +x_0=300000 +y_0=5000000 +ellps=GRS80 +datum=NAD83 +units=us-ft +no_defs'}
+};
+function suggestZone(lat) { return lat > 34.6 ? '2275' : lat > 32.2 ? '2276' : lat > 30.22 ? '2277' : lat > 28.0 ? '2278' : '2279'; }
+
+function ringArea(r) { let a = 0; for (let i = 0, j = r.length - 1; i < r.length; j = i++) a += (r[j][0] + r[i][0]) * (r[j][1] - r[i][1]); return Math.abs(a / 2); }
+
+// Grid mask: 1 = keep. Grid point (c,r) sits at x0 + c*cell, y0 - r*cell. Scanline fill, then chamfer-distance dilation for the buffer.
+function buildMask(rings, W, H, x0, y0, cell, buffer) {
+  const m = new Uint8Array(W * H);
+  for (let r = 0; r < H; r++) {
+    const y = y0 - r * cell, xs = [];
+    for (const ring of rings) for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const [xi, yi] = ring[i], [xj, yj] = ring[j];
+      if ((yi > y) !== (yj > y)) xs.push(xi + (y - yi) * (xj - xi) / (yj - yi));
+    }
+    xs.sort((a, b) => a - b);
+    for (let k = 0; k + 1 < xs.length; k += 2) {
+      const c0 = Math.max(0, Math.ceil((xs[k] - x0) / cell)), c1 = Math.min(W - 1, Math.floor((xs[k + 1] - x0) / cell));
+      for (let c = c0; c <= c1; c++) m[r * W + c] = 1;
+    }
+  }
+  if (buffer > 0) {
+    const d = new Float32Array(W * H), INF = 1e9, S = Math.SQRT2;
+    for (let i = 0; i < W * H; i++) d[i] = m[i] ? 0 : INF;
+    for (let r = 0; r < H; r++) for (let c = 0; c < W; c++) {
+      const i = r * W + c; let v = d[i];
+      if (c > 0) v = Math.min(v, d[i - 1] + 1);
+      if (r > 0) { v = Math.min(v, d[i - W] + 1); if (c > 0) v = Math.min(v, d[i - W - 1] + S); if (c < W - 1) v = Math.min(v, d[i - W + 1] + S); }
+      d[i] = v;
+    }
+    for (let r = H - 1; r >= 0; r--) for (let c = W - 1; c >= 0; c--) {
+      const i = r * W + c; let v = d[i];
+      if (c < W - 1) v = Math.min(v, d[i + 1] + 1);
+      if (r < H - 1) { v = Math.min(v, d[i + W] + 1); if (c < W - 1) v = Math.min(v, d[i + W + 1] + S); if (c > 0) v = Math.min(v, d[i + W - 1] + S); }
+      d[i] = v;
+    }
+    const lim = buffer / cell;
+    for (let i = 0; i < W * H; i++) if (d[i] <= lim) m[i] = 1;
+  }
+  return m;
+}
+
+// NaN-aware separable [1 2 1] blur, n passes
+function smoothGrid(z, W, H, n) {
+  let a = z;
+  for (let p = 0; p < n; p++) {
+    const t = new Float64Array(W * H), o = new Float64Array(W * H);
+    for (let r = 0; r < H; r++) for (let c = 0; c < W; c++) {
+      const i = r * W + c; if (isNaN(a[i])) { t[i] = NaN; continue; }
+      let s = 2 * a[i], w = 2;
+      if (c > 0 && !isNaN(a[i - 1])) { s += a[i - 1]; w++; }
+      if (c < W - 1 && !isNaN(a[i + 1])) { s += a[i + 1]; w++; }
+      t[i] = s / w;
+    }
+    for (let r = 0; r < H; r++) for (let c = 0; c < W; c++) {
+      const i = r * W + c; if (isNaN(t[i])) { o[i] = NaN; continue; }
+      let s = 2 * t[i], w = 2;
+      if (r > 0 && !isNaN(t[i - W])) { s += t[i - W]; w++; }
+      if (r < H - 1 && !isNaN(t[i + W])) { s += t[i + W]; w++; }
+      o[i] = s / w;
+    }
+    a = o;
+  }
+  return a;
+}
+
+// Marching squares. Segment endpoints are keyed by the grid edge they cross,
+// so neighbouring cells join exactly. Edge id: horizontal (r,c)-(r,c+1) = 2*(r*W+c); vertical (r,c)-(r+1,c) = 2*(r*W+c)+1.
+// Returns [{z, major, pts:[[x,y],...], closed}]
+function contours(z, W, H, x0, y0, cell, minor, major) {
+  let zmin = Infinity, zmax = -Infinity;
+  for (const v of z) if (!isNaN(v)) { if (v < zmin) zmin = v; if (v > zmax) zmax = v; }
+  if (!isFinite(zmin)) return [];
+  const k0 = Math.ceil(zmin / minor - 1e-9), k1 = Math.floor(zmax / minor + 1e-9), nL = k1 - k0 + 1;
+  const segs = Array.from({length: Math.max(0, nL)}, () => []);
+  const Hh = (r, c) => 2 * (r * W + c), Vv = (r, c) => 2 * (r * W + c) + 1;
+  for (let r = 0; r < H - 1; r++) for (let c = 0; c < W - 1; c++) {
+    const tl = z[r * W + c], tr = z[r * W + c + 1], br = z[(r + 1) * W + c + 1], bl = z[(r + 1) * W + c];
+    if (isNaN(tl) || isNaN(tr) || isNaN(br) || isNaN(bl)) continue;
+    const lo = Math.min(tl, tr, br, bl), hi = Math.max(tl, tr, br, bl);
+    const a = Math.max(k0, Math.ceil(lo / minor - 1e-9)), b = Math.min(k1, Math.floor(hi / minor + 1e-9));
+    if (a > b) continue;
+    const T = Hh(r, c), R = Vv(r, c + 1), B = Hh(r + 1, c), L = Vv(r, c);
+    for (let k = a; k <= b; k++) {
+      const lv = k * minor;
+      const cs = (tl >= lv ? 8 : 0) | (tr >= lv ? 4 : 0) | (br >= lv ? 2 : 0) | (bl >= lv ? 1 : 0);
+      const S = segs[k - k0];
+      switch (cs) {
+        case 0: case 15: break;
+        case 1: case 14: S.push(L, B); break;
+        case 2: case 13: S.push(B, R); break;
+        case 3: case 12: S.push(L, R); break;
+        case 4: case 11: S.push(T, R); break;
+        case 6: case 9: S.push(T, B); break;
+        case 7: case 8: S.push(L, T); break;
+        case 5: { const up = (tl + tr + br + bl) / 4 >= lv; if (up) S.push(L, T, B, R); else S.push(T, R, L, B); break; }
+        case 10: { const up = (tl + tr + br + bl) / 4 >= lv; if (up) S.push(T, R, L, B); else S.push(L, T, B, R); break; }
+      }
+    }
+  }
+  const edgePt = (e, lv) => {
+    const cell0 = e >> 1, r = Math.floor(cell0 / W), c = cell0 % W, vert = e & 1;
+    const z1 = z[r * W + c], z2 = vert ? z[(r + 1) * W + c] : z[r * W + c + 1];
+    let t = (lv - z1) / (z2 - z1); if (!isFinite(t)) t = 0.5; t = Math.min(1, Math.max(0, t));
+    const cc = vert ? c : c + t, rr = vert ? r + t : r;
+    return [x0 + cc * cell, y0 - rr * cell];
+  };
+  const out = [];
+  for (let li = 0; li < nL; li++) {
+    const S = segs[li], n = S.length / 2; if (!n) continue;
+    const lv = (k0 + li) * minor;
+    const adj = new Map();
+    for (let s = 0; s < n; s++) for (const e of [S[2 * s], S[2 * s + 1]]) { const l = adj.get(e); if (l) l.push(s); else adj.set(e, [s]); }
+    const used = new Uint8Array(n);
+    const walk = (s0, startEdge) => {
+      const chain = [startEdge]; let s = s0, e = startEdge;
+      for (;;) {
+        used[s] = 1;
+        const nxt = S[2 * s] === e ? S[2 * s + 1] : S[2 * s];
+        chain.push(nxt);
+        const l = adj.get(nxt); const s2 = l && l.find(q => !used[q]);
+        if (s2 === undefined) break;
+        s = s2; e = nxt;
+      }
+      return chain;
+    };
+    const isMajor = Math.abs(lv / major - Math.round(lv / major)) < 1e-6;
+    const push = ch => {
+      const closed = ch.length > 3 && ch[0] === ch[ch.length - 1];
+      if (closed) ch.pop();
+      out.push({z: +lv.toFixed(4), major: isMajor, closed, pts: ch.map(e => edgePt(e, lv))});
+    };
+    for (const [e, l] of adj) if (l.length === 1 && !used[l[0]]) push(walk(l[0], e));
+    for (let s = 0; s < n; s++) if (!used[s]) push(walk(s, S[2 * s]));
+  }
+  return out;
+}
+
+function simplify(pts, tol, closed) {
+  if (tol <= 0 || pts.length < 4) return pts;
+  const keep = new Uint8Array(pts.length); keep[0] = keep[pts.length - 1] = 1;
+  const st = [[0, pts.length - 1]], t2 = tol * tol;
+  while (st.length) {
+    const [a, b] = st.pop(); const [ax, ay] = pts[a], [bx, by] = pts[b];
+    const dx = bx - ax, dy = by - ay, L = dx * dx + dy * dy; let md = -1, mi = -1;
+    for (let i = a + 1; i < b; i++) {
+      const [px, py] = pts[i]; let d;
+      if (L === 0) d = (px - ax) ** 2 + (py - ay) ** 2;
+      else { const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / L)); d = (px - ax - t * dx) ** 2 + (py - ay - t * dy) ** 2; }
+      if (d > md) { md = d; mi = i; }
+    }
+    if (md > t2) { keep[mi] = 1; st.push([a, mi], [mi, b]); }
+  }
+  const r = pts.filter((_, i) => keep[i]);
+  return closed && r.length < 3 ? pts : r;
+}
+
+const f3 = v => (Math.round(v * 1000) / 1000).toFixed(3);
+const LAYERS = [['V-TOPO-MAJR', 30], ['V-TOPO-MINR', 8], ['V-TOPO-BNDY', 6], ['V-TOPO-TEXT', 7], ['V-TOPO-NOTE', 2]];
+
+// AutoCAD R12 DXF — the most widely accepted flavour; 2D polylines carry contour elevation.
+function buildDXF({lines, rings, factor, label, noteLines, textH}) {
+  const o = [], p = (c, v) => { o.push(c, v); };
+  let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity, z1 = Infinity, z2 = -Infinity;
+  const S = ([x, y]) => [x * factor, y * factor];
+  for (const ring of rings) for (const pt of ring) { const [x, y] = S(pt); x1 = Math.min(x1, x); y1 = Math.min(y1, y); x2 = Math.max(x2, x); y2 = Math.max(y2, y); }
+  for (const l of lines) { z1 = Math.min(z1, l.z); z2 = Math.max(z2, l.z); }
+  if (!isFinite(z1)) z1 = z2 = 0;
+  p(0, 'SECTION'); p(2, 'HEADER');
+  p(9, '$ACADVER'); p(1, 'AC1009');
+  p(9, '$INSBASE'); p(10, '0.0'); p(20, '0.0'); p(30, '0.0');
+  p(9, '$EXTMIN'); p(10, f3(x1)); p(20, f3(y1)); p(30, f3(z1));
+  p(9, '$EXTMAX'); p(10, f3(x2)); p(20, f3(y2)); p(30, f3(z2));
+  p(0, 'ENDSEC');
+  p(0, 'SECTION'); p(2, 'TABLES');
+  p(0, 'TABLE'); p(2, 'LTYPE'); p(70, 1);
+  p(0, 'LTYPE'); p(2, 'CONTINUOUS'); p(70, 0); p(3, 'Solid line'); p(72, 65); p(73, 0); p(40, '0.0');
+  p(0, 'ENDTAB');
+  p(0, 'TABLE'); p(2, 'LAYER'); p(70, LAYERS.length);
+  for (const [n, col] of LAYERS) { p(0, 'LAYER'); p(2, n); p(70, 0); p(62, col); p(6, 'CONTINUOUS'); }
+  p(0, 'ENDTAB');
+  p(0, 'ENDSEC');
+  p(0, 'SECTION'); p(2, 'ENTITIES');
+  const poly = (layer, pts, elev, closed) => {
+    p(0, 'POLYLINE'); p(8, layer); p(66, 1); p(10, '0.0'); p(20, '0.0'); p(30, f3(elev)); p(70, closed ? 1 : 0);
+    for (const pt of pts) { const [x, y] = S(pt); p(0, 'VERTEX'); p(8, layer); p(10, f3(x)); p(20, f3(y)); p(30, f3(elev)); }
+    p(0, 'SEQEND'); p(8, layer);
+  };
+  const text = (layer, x, y, h, s, rot) => { p(0, 'TEXT'); p(8, layer); p(10, f3(x)); p(20, f3(y)); p(30, '0.0'); p(40, f3(h)); p(1, s); if (rot) p(50, f3(rot)); };
+  for (const ring of rings) poly('V-TOPO-BNDY', ring, 0, true);
+  for (const l of lines) poly(l.major ? 'V-TOPO-MAJR' : 'V-TOPO-MINR', l.pts, l.z, l.closed);
+  if (label) for (const l of lines) {
+    if (!l.major || l.pts.length < 2) continue;
+    let len = 0; for (let i = 1; i < l.pts.length; i++) len += Math.hypot(l.pts[i][0] - l.pts[i - 1][0], l.pts[i][1] - l.pts[i - 1][1]);
+    if (len < textH * 12) continue;
+    let acc = 0, i = 1;
+    for (; i < l.pts.length; i++) { acc += Math.hypot(l.pts[i][0] - l.pts[i - 1][0], l.pts[i][1] - l.pts[i - 1][1]); if (acc >= len / 2) break; }
+    i = Math.min(i, l.pts.length - 1);
+    const [ax, ay] = S(l.pts[i - 1]), [bx, by] = S(l.pts[i]);
+    let ang = Math.atan2(by - ay, bx - ax) * 180 / Math.PI; if (ang > 90) ang -= 180; if (ang < -90) ang += 180;
+    text('V-TOPO-TEXT', (ax + bx) / 2, (ay + by) / 2, textH, String(Math.round(l.z * 100) / 100), ang);
+  }
+  noteLines.forEach((s, i) => text('V-TOPO-NOTE', x1, y1 - textH * 3 - i * textH * 1.8, textH, s, 0));
+  p(0, 'ENDSEC'); p(0, 'EOF');
+  return o.join('\r\n') + '\r\n';
+}
+
+function buildCSV(z, mask, W, H, x0, y0, cell, step, factor) {
+  const rows = []; let n = 1;
+  for (let r = 0; r < H; r += step) for (let c = 0; c < W; c += step) {
+    const i = r * W + c; if (!mask[i] || isNaN(z[i])) continue;
+    rows.push(`${n++},${f3((y0 - r * cell) * factor)},${f3((x0 + c * cell) * factor)},${f3(z[i])},LIDAR`);
+  }
+  return rows.join('\r\n') + '\r\n';
+}
+
+function buildASC(z, mask, W, H, x0, y0, cell, factor) {
+  const out = [`ncols ${W}`, `nrows ${H}`, `xllcenter ${f3(x0 * factor)}`, `yllcenter ${f3((y0 - (H - 1) * cell) * factor)}`, `cellsize ${f3(cell * factor)}`, 'NODATA_value -9999'];
+  for (let r = 0; r < H; r++) { const row = new Array(W); for (let c = 0; c < W; c++) { const i = r * W + c; row[c] = mask[i] && !isNaN(z[i]) ? z[i].toFixed(3) : '-9999'; } out.push(row.join(' ')); }
+  return out.join('\n') + '\n';
+}
+// CORE-END
+</script>
+<script>
+{
+const $ = id => document.getElementById(id);
+const store = {get(k) { try { return localStorage.getItem('l2c.' + k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem('l2c.' + k, v); } catch (e) {} }};
+['zone', 'cell', 'buf', 'minor', 'major', 'smooth', 'tol', 'ptsp', 'csf'].forEach(id => { const v = store.get(id); if (v !== null) $(id).value = v; $(id).addEventListener('change', () => store.set(id, $(id).value)); });
+
+const say = (msg, cls = '') => { $('status').textContent = msg; $('status').className = cls; };
+const prog = f => { $('prog').style.width = Math.round(f * 100) + '%'; };
+const tick = () => new Promise(r => setTimeout(r, 0));
+
+// ---------- Map ----------
+const map = L.map('map', {preferCanvas: true}).setView([29.75, -98.15], 10);
+const imagery = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {maxZoom: 21, maxNativeZoom: 19, attribution: 'Imagery &copy; Esri'}).addTo(map);
+const usgsTopo = L.tileLayer('https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}', {maxZoom: 21, maxNativeZoom: 16, attribution: 'USGS The National Map'});
+const roads = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}', {maxZoom: 21, maxNativeZoom: 19}).addTo(map);
+const shade = L.tileLayer('https://basemap.nationalmap.gov/arcgis/rest/services/USGSShadedReliefOnly/MapServer/tile/{z}/{y}/{x}', {maxZoom: 21, maxNativeZoom: 16, opacity: 0.45});
+const contourLayer = L.layerGroup().addTo(map);
+L.control.layers({'Imagery': imagery, 'USGS topo': usgsTopo}, {'Roads': roads, 'Hillshade': shade, 'Contours': contourLayer}).addTo(map);
+L.control.scale({imperial: true, metric: false}).addTo(map);
+
+const bStyle = {color: '#ffb000', weight: 3, fillOpacity: 0.06};
+let boundary = null;  // L.Polygon
+let rings = [];       // [[lng,lat],...] per ring
+let result = null;
+
+function readRings() {
+  if (!boundary) return [];
+  let ll = boundary.getLatLngs();
+  if (!Array.isArray(ll[0])) ll = [ll];
+  if (ll[0] && Array.isArray(ll[0][0])) ll = ll.map(x => x[0]); // multipolygon
+  return ll.map(r => r.map(p => [p.lng, p.lat])).filter(r => r.length >= 3);
+}
+function updateInfo() {
+  rings = readRings();
+  if (!rings.length) { $('bInfo').textContent = 'No boundary yet. Drag the corner handles to adjust one after it\'s drawn.'; return; }
+  const P = proj4('EPSG:4326', ZONES[$('zone').value].def);
+  const ac = rings.reduce((s, r) => s + ringArea(r.map(q => P.forward(q))), 0) / 43560;
+  const c = boundary.getBounds().getCenter(), sug = suggestZone(c.lat);
+  $('bInfo').textContent = `${rings.length} polygon${rings.length > 1 ? 's' : ''}, ${ac.toLocaleString(undefined, {maximumFractionDigits: 2})} ac. Drag the vertices to adjust.`;
+  $('zoneHint').textContent = sug === $('zone').value ? 'Vertical datum NAVD88, feet. Zone matches the site latitude; confirm by county.' : `This site's latitude suggests ${ZONES[sug].code}. Confirm by county before you run. Vertical datum NAVD88, feet.`;
+}
+function setBoundary(rs, fit = true) {
+  if (boundary) map.removeLayer(boundary);
+  contourLayer.clearLayers(); result = null; $('results').hidden = true;
+  boundary = L.polygon(rs.map(r => r.map(([x, y]) => [y, x])), bStyle).addTo(map);
+  if (boundary.editing) { boundary.editing.enable(); boundary.on('edit', () => { contourLayer.clearLayers(); updateInfo(); }); }
+  if (fit) map.fitBounds(boundary.getBounds(), {padding: [40, 40]});
+  updateInfo();
+}
+$('zone').addEventListener('change', updateInfo);
+$('btnClear').onclick = () => { if (boundary) map.removeLayer(boundary); boundary = null; contourLayer.clearLayers(); $('results').hidden = true; updateInfo(); say(''); prog(0); };
+
+const polyDraw = new L.Draw.Polygon(map, {allowIntersection: false, showArea: false, shapeOptions: bStyle});
+const rectDraw = new L.Draw.Rectangle(map, {showArea: false, shapeOptions: bStyle});
+$('btnPoly').onclick = () => { rectDraw.disable(); polyDraw.enable(); say('Click to place vertices. Click the first point to close.'); };
+$('btnRect').onclick = () => { polyDraw.disable(); rectDraw.enable(); say('Click and drag to draw the rectangle.'); };
+map.on(L.Draw.Event.CREATED, e => { const ll = e.layer.getLatLngs()[0]; setBoundary([ll.map(p => [p.lng, p.lat])], false); say(''); });
+
+// ---------- Files ----------
+const parseCoords = t => t.trim().split(/\s+/).map(s => s.split(',').map(Number)).filter(a => isFinite(a[0]) && isFinite(a[1])).map(a => [a[0], a[1]]);
+function parseKml(t) {
+  const doc = new DOMParser().parseFromString(t, 'application/xml'), out = [];
+  for (const p of doc.getElementsByTagName('Polygon')) {
+    const ob = p.getElementsByTagName('outerBoundaryIs')[0], c = (ob || p).getElementsByTagName('coordinates')[0];
+    if (c) out.push(parseCoords(c.textContent));
+  }
+  if (!out.length) for (const ls of doc.getElementsByTagName('LineString')) { const c = ls.getElementsByTagName('coordinates')[0]; if (c) out.push(parseCoords(c.textContent)); }
+  return out;
+}
+function parseGeo(g) {
+  const out = [], add = geom => {
+    if (!geom) return;
+    if (geom.type === 'Polygon') out.push(geom.coordinates[0]);
+    else if (geom.type === 'MultiPolygon') geom.coordinates.forEach(p => out.push(p[0]));
+    else if (geom.type === 'GeometryCollection') geom.geometries.forEach(add);
+  };
+  if (g.type === 'FeatureCollection') g.features.forEach(f => add(f.geometry)); else if (g.type === 'Feature') add(g.geometry); else add(g);
+  return out.map(r => r.map(p => [p[0], p[1]]));
+}
+async function loadFile(f) {
+  try {
+    const n = f.name.toLowerCase(); let rs;
+    if (n.endsWith('.kmz')) {
+      const zip = await JSZip.loadAsync(f), k = Object.keys(zip.files).find(x => x.toLowerCase().endsWith('.kml'));
+      if (!k) throw new Error('No KML inside that KMZ.');
+      rs = parseKml(await zip.file(k).async('string'));
+    } else if (n.endsWith('.kml')) rs = parseKml(await f.text());
+    else rs = parseGeo(JSON.parse(await f.text()));
+    rs = rs.map(r => { if (r.length > 1 && r[0][0] === r[r.length - 1][0] && r[0][1] === r[r.length - 1][1]) r = r.slice(0, -1); return r; }).filter(r => r.length >= 3);
+    if (!rs.length) throw new Error('No polygon found. The file needs a closed polygon or path.');
+    setBoundary(rs); say(`Loaded ${f.name}.`, 'ok');
+  } catch (e) { say(e.message, 'err'); }
+}
+$('file').addEventListener('change', e => { if (e.target.files[0]) loadFile(e.target.files[0]); e.target.value = ''; });
+const drop = $('drop');
+['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('on'); }));
+['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('on'); }));
+drop.addEventListener('drop', e => { const f = e.dataTransfer.files[0]; if (f) loadFile(f); });
+document.addEventListener('dragover', e => e.preventDefault());
+document.addEventListener('drop', e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f && /\.(kmz|kml|geojson|json)$/i.test(f.name)) loadFile(f); });
+
+$('searchForm').addEventListener('submit', async e => {
+  e.preventDefault(); const q = $('q').value.trim(); if (!q) return;
+  try {
+    const r = await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=us&q=' + encodeURIComponent(q));
+    const j = await r.json(); if (!j.length) return say('No match for that search.', 'err');
+    map.setView([+j[0].lat, +j[0].lon], 17); say('');
+  } catch (err) { say('Search is unavailable right now.', 'err'); }
+});
+
+// ---------- Run ----------
+async function lidarSources(P, b) {
+  try {
+    const [lo1, la1] = P.inverse([b[0], b[1]]), [lo2, la2] = P.inverse([b[2], b[3]]);
+    const u = 'https://tnmaccess.nationalmap.gov/api/v1/products?' + new URLSearchParams({datasets: 'Lidar Point Cloud (LPC)', bbox: [lo1, la1, lo2, la2].map(v => v.toFixed(6)).join(','), max: '50', outputFormat: 'JSON'});
+    const j = await (await fetch(u)).json();
+    const names = new Map();
+    for (const it of j.items || []) { const m = (it.title || '').match(/USGS Lidar Point Cloud\s+(.+?)\s+[\w-]*\d{3,}/i); const key = m ? m[1] : (it.title || '').slice(0, 60); const d = (it.publicationDate || '').slice(0, 4); if (!names.has(key)) names.set(key, d); }
+    return [...names].slice(0, 4).map(([k, d]) => d ? `${k} (${d})` : k);
+  } catch (e) { return null; }
+}
+
+$('btnRun').onclick = async () => {
+  if (!rings.length) return say('Draw or load a boundary first.', 'err');
+  const btn = $('btnRun'); btn.disabled = true; $('results').hidden = true; contourLayer.clearLayers(); prog(0.02);
+  try {
+    const zone = $('zone').value, Z = ZONES[zone], P = proj4('EPSG:4326', Z.def);
+    const cell = +$('cell').value, buf = Math.max(0, +$('buf').value || 0), minor = +$('minor').value, major = Math.max(+$('major').value, minor);
+    const sp = rings.map(r => r.map(q => P.forward(q)));
+    let xa = Infinity, ya = Infinity, xb = -Infinity, yb = -Infinity;
+    for (const r of sp) for (const [x, y] of r) { xa = Math.min(xa, x); ya = Math.min(ya, y); xb = Math.max(xb, x); yb = Math.max(yb, y); }
+    const pad = buf + 3 * cell;
+    xa = Math.floor((xa - pad) / cell) * cell; ya = Math.floor((ya - pad) / cell) * cell;
+    xb = Math.ceil((xb + pad) / cell) * cell; yb = Math.ceil((yb + pad) / cell) * cell;
+    const W = Math.round((xb - xa) / cell), H = Math.round((yb - ya) / cell);
+    if (W > 8000 || H > 8000) throw new Error(`Area is ${W}×${H} cells; USGS allows 8000 per side. Use a larger cell size.`);
+    if (W * H > 30e6) throw new Error('That is too many cells for one browser run. Use a larger cell size or a smaller boundary.');
+
+    say(`Requesting ${W.toLocaleString()} × ${H.toLocaleString()} elevation grid from USGS 3DEP…`); prog(0.08);
+    const srcP = lidarSources(P, [xa, ya, xb, yb]);
+    const url = 'https://elevation.nationalmap.gov/arcgis/rest/services/3DEPElevation/ImageServer/exportImage?' + new URLSearchParams({
+      bbox: [xa, ya, xb, yb].join(','), bboxSR: zone, imageSR: zone, size: `${W},${H}`, format: 'tiff', pixelType: 'F32',
+      noData: '-9999', noDataInterpretation: 'esriNoDataMatchAny', interpolation: 'RSP_BilinearInterpolation', adjustAspectRatio: 'false', f: 'image'});
+    let res;
+    try { res = await fetch(url); } catch (e) { throw new Error('Could not reach USGS (network or browser blocked the request). Check your connection, then try again.'); }
+    const ct = res.headers.get('content-type') || '', ab = await res.arrayBuffer();
+    if (!res.ok || /json|html|text/.test(ct)) throw new Error('USGS returned an error: ' + new TextDecoder().decode(ab).slice(0, 200));
+    say('Reading elevations…'); prog(0.4); await tick();
+    const tiff = await GeoTIFF.fromArrayBuffer(ab), img = await tiff.getImage(), ras = await img.readRasters({interleave: true});
+    const w = img.getWidth(), h = img.getHeight();
+    // Grid points are pixel centres
+    let gx0 = xa + cell / 2, gy0 = yb - cell / 2, gcell = cell;
+    try {
+      const [ox, oy] = img.getOrigin(), [rx] = img.getResolution();
+      if (Math.abs(ox - xa) < 5 * cell && Math.abs(oy - yb) < 5 * cell && Math.abs(rx - cell) < cell * 0.05) { gx0 = ox + rx / 2; gy0 = oy - rx / 2; gcell = rx; }
+    } catch (e) {}
+    const nod = img.getGDALNoData();
+    let z = new Float64Array(w * h), nNaN = 0;
+    for (let i = 0; i < w * h; i++) { const v = ras[i]; if (!isFinite(v) || v === nod || v < -500 || v > 9000) { z[i] = NaN; nNaN++; } else z[i] = v * FT_PER_M; }
+
+    say('Cutting to boundary…'); prog(0.5); await tick();
+    const mask = buildMask(sp, w, h, gx0, gy0, gcell, buf);
+    const sm = +$('smooth').value; if (sm) z = smoothGrid(z, w, h, sm);
+    const zc = new Float64Array(w * h); let nIn = 0, zmin = Infinity, zmax = -Infinity, zsum = 0, nMissIn = 0;
+    for (let i = 0; i < w * h; i++) {
+      if (mask[i]) { nIn++; if (isNaN(z[i])) { nMissIn++; zc[i] = NaN; } else { zc[i] = z[i]; zmin = Math.min(zmin, z[i]); zmax = Math.max(zmax, z[i]); zsum += z[i]; } }
+      else zc[i] = NaN;
+    }
+    if (!isFinite(zmin)) throw new Error('No elevation data came back for this area.');
+    if ((zmax - zmin) / minor > 2000) throw new Error('That would make more than 2,000 contour levels. Use a larger minor interval.');
+
+    say('Tracing contours…'); prog(0.62); await tick();
+    const tol = Math.max(0, +$('tol').value || 0);
+    const lines = contours(zc, w, h, gx0, gy0, gcell, minor, major).map(l => ({...l, pts: simplify(l.pts, tol, l.closed)})).filter(l => l.pts.length >= 2);
+
+    say('Drawing preview…'); prog(0.85); await tick();
+    const rend = L.canvas({padding: 0.3});
+    for (const l of lines) L.polyline(l.pts.map(q => { const [lo, la] = P.inverse(q); return [la, lo]; }), {renderer: rend, color: l.major ? '#d9844f' : '#f3c9a0', weight: l.major ? 1.8 : 0.7, opacity: l.major ? 0.95 : 0.75, interactive: false}).addTo(contourLayer);
+    if (!map.hasLayer(contourLayer)) contourLayer.addTo(map);
+
+    const sources = await Promise.race([srcP, new Promise(r => setTimeout(() => r(null), 4000))]);
+    result = {zone, Z, sp, lines, z: zc, mask, w, h, gx0, gy0, gcell, minor, major, sources, stamp: new Date()};
+    const ac = sp.reduce((s, r) => s + ringArea(r), 0) / 43560;
+    const verts = lines.reduce((s, l) => s + l.pts.length, 0);
+    const rows = [['Area', `${ac.toLocaleString(undefined, {maximumFractionDigits: 2})} ac`], ['Grid', `${w.toLocaleString()} × ${h.toLocaleString()} at ${gcell} ft`],
+      ['Elevation range', `${zmin.toFixed(1)} – ${zmax.toFixed(1)} ft`], ['Mean elevation', `${(zsum / (nIn - nMissIn)).toFixed(1)} ft`],
+      ['Contours', `${lines.filter(l => l.major).length.toLocaleString()} major, ${lines.filter(l => !l.major).length.toLocaleString()} minor`], ['Vertices', verts.toLocaleString()],
+      ['Missing data in boundary', `${(100 * nMissIn / Math.max(1, nIn)).toFixed(1)}%`]];
+    $('stats').innerHTML = rows.map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`).join('');
+    $('srcInfo').textContent = sources && sources.length ? 'Lidar projects covering this site: ' + sources.join('; ') + '.' : 'Lidar project list unavailable; the DEM is still USGS 3DEP best-available.';
+    $('results').hidden = false; prog(1);
+    say(nMissIn / Math.max(1, nIn) > 0.02 ? 'Done, but part of the boundary has no data. Check the preview before using it.' : 'Done. Review the contours on the map, then download.', nMissIn / Math.max(1, nIn) > 0.02 ? 'err' : 'ok');
+  } catch (e) { say(e.message || String(e), 'err'); prog(0); console.error(e); }
+  btn.disabled = false;
+};
+
+// ---------- Export ----------
+const fname = () => ($('pname').value.trim() || 'site-topo').replace(/[^\w.-]+/g, '-');
+function notes() {
+  const R = result, src = R.sources && R.sources.length ? R.sources.join('; ') : 'USGS 3DEP best-available DEM';
+  const f = +$('csf').value || 1;
+  return ['TOPOGRAPHY FROM USGS 3DEP LIDAR-DERIVED BARE-EARTH DEM (' + src.toUpperCase() + ')',
+    'HORIZONTAL: ' + R.Z.name.toUpperCase() + ' (' + R.Z.code + ')' + (f !== 1 ? ', SURFACE COORDINATES, GRID-TO-SURFACE FACTOR ' + f.toFixed(8) : ', GRID COORDINATES'),
+    'VERTICAL: NAVD88, US SURVEY FEET. CONTOUR INTERVAL ' + R.minor + ' FT, INDEX ' + R.major + ' FT.',
+    'GENERATED ' + R.stamp.toISOString().slice(0, 10) + '. NOT A FIELD SURVEY. VERIFY BEFORE DESIGN USE.'];
+}
+function makeDXF() { const f = +$('csf').value || 1; return buildDXF({lines: result.lines, rings: result.sp, factor: f, label: $('lbl').checked, noteLines: notes(), textH: Math.max(2, result.gcell * 1.5)}); }
+function save(blob, name) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000); }
+$('dlDxf').onclick = () => { if (result) save(new Blob([makeDXF()], {type: 'application/dxf'}), fname() + '.dxf'); };
+$('dlZip').onclick = async () => {
+  if (!result) return; const R = result, f = +$('csf').value || 1;
+  say('Packaging…');
+  const zip = new JSZip(), n = fname();
+  zip.file(n + '.dxf', makeDXF());
+  const step = Math.max(1, Math.round((+$('ptsp').value || 10) / R.gcell));
+  zip.file(n + '-points-PNEZD.csv', buildCSV(R.z, R.mask, R.w, R.h, R.gx0, R.gy0, R.gcell, step, f));
+  zip.file(n + '-dem.asc', buildASC(R.z, R.mask, R.w, R.h, R.gx0, R.gy0, R.gcell, f));
+  zip.file('README.txt', [...notes(), '', 'FILES',
+    n + '.dxf  Contours (V-TOPO-MAJR / V-TOPO-MINR, polylines at elevation), boundary (V-TOPO-BNDY), labels, notes.',
+    n + '-points-PNEZD.csv  Grid points every ' + (step * R.gcell) + ' ft: Point, Northing, Easting, Elevation, Description.',
+    n + '-dem.asc  Esri ASCII elevation grid, ' + R.gcell * f + ' ft cells, -9999 outside the boundary.', '',
+    'CIVIL 3D', '1. Open the DXF, then SAVEAS to DWG.', '2. Settings > Drawing > Edit Drawing Settings > Units and Zone: set ' + R.Z.code + '.',
+    '3. Surface: Create Surface, then Definition > Contours > Add, and pick the V-TOPO-MAJR and V-TOPO-MINR layers.',
+    '   Or Definition > Point Files > Add with the PNEZD CSV, or Definition > DEM Files > Add with the .asc grid.'].join('\r\n'));
+  save(await zip.generateAsync({type: 'blob', compression: 'DEFLATE'}), n + '.zip'); say('Package downloaded.', 'ok');
+};
+updateInfo();
+}
+</script>
+</body>
+</html>
