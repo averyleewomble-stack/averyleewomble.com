@@ -508,7 +508,7 @@ async function lidarSources(P, b) {
     const u = 'https://tnmaccess.nationalmap.gov/api/v1/products?' + new URLSearchParams({datasets: 'Lidar Point Cloud (LPC)', bbox: [lo1, la1, lo2, la2].map(v => v.toFixed(6)).join(','), max: '50', outputFormat: 'JSON'});
     const j = await (await fetch(u)).json();
     const names = new Map();
-    for (const it of j.items || []) { const m = (it.title || '').match(/USGS Lidar Point Cloud\s+(.+?)\s+[\w-]*\d{3,}/i); const key = m ? m[1] : (it.title || '').slice(0, 60); const d = (it.publicationDate || '').slice(0, 4); if (!names.has(key)) names.set(key, d); }
+    for (const it of j.items || []) { const m = (it.title || '').match(/USGS Lidar Point Cloud\s+(.+?)\s+[\w-]*\d{3,}/i); const key = (m ? m[1] : (it.title || '').slice(0, 60)).replace(/_/g, ' '); const d = (it.publicationDate || '').slice(0, 4); if (!names.has(key)) names.set(key, d); }
     return [...names].slice(0, 4).map(([k, d]) => d ? `${k} (${d})` : k);
   } catch (e) { return null; }
 }
@@ -571,8 +571,10 @@ $('btnRun').onclick = async () => {
     for (const l of lines) L.polyline(l.pts.map(q => { const [lo, la] = P.inverse(q); return [la, lo]; }), {renderer: rend, color: l.major ? '#d9844f' : '#f3c9a0', weight: l.major ? 1.8 : 0.7, opacity: l.major ? 0.95 : 0.75, interactive: false}).addTo(contourLayer);
     if (!map.hasLayer(contourLayer)) contourLayer.addTo(map);
 
-    const sources = await Promise.race([srcP, new Promise(r => setTimeout(() => r(null), 4000))]);
-    result = {zone, Z, sp, lines, z: zc, mask, w, h, gx0, gy0, gcell, minor, major, sources, stamp: new Date()};
+    result = {zone, Z, sp, lines, z: zc, mask, w, h, gx0, gy0, gcell, minor, major, sources: null, stamp: new Date()};
+    const thisRun = result;
+    $('srcInfo').textContent = 'Looking up which lidar project covers this site…';
+    srcP.then(src => { if (result !== thisRun) return; thisRun.sources = src; $('srcInfo').textContent = src && src.length ? 'Lidar project covering this site: ' + src.join('; ') + '.' : 'Lidar project list unavailable; the DEM is still USGS 3DEP best-available.'; });
     const ac = sp.reduce((s, r) => s + ringArea(r), 0) / 43560;
     const verts = lines.reduce((s, l) => s + l.pts.length, 0);
     const rows = [['Area', `${ac.toLocaleString(undefined, {maximumFractionDigits: 2})} ac`], ['Grid', `${w.toLocaleString()} × ${h.toLocaleString()} at ${gcell} ft`],
@@ -580,7 +582,6 @@ $('btnRun').onclick = async () => {
       ['Contours', `${lines.filter(l => l.major).length.toLocaleString()} major, ${lines.filter(l => !l.major).length.toLocaleString()} minor`], ['Vertices', verts.toLocaleString()],
       ['Missing data in boundary', `${(100 * nMissIn / Math.max(1, nIn)).toFixed(1)}%`]];
     $('stats').innerHTML = rows.map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`).join('');
-    $('srcInfo').textContent = sources && sources.length ? 'Lidar projects covering this site: ' + sources.join('; ') + '.' : 'Lidar project list unavailable; the DEM is still USGS 3DEP best-available.';
     $('results').hidden = false; prog(1);
     say(nMissIn / Math.max(1, nIn) > 0.02 ? 'Done, but part of the boundary has no data. Check the preview before using it.' : 'Done. Review the contours on the map, then download.', nMissIn / Math.max(1, nIn) > 0.02 ? 'err' : 'ok');
   } catch (e) { say(e.message || String(e), 'err'); prog(0); console.error(e); }
