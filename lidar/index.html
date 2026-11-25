@@ -143,12 +143,13 @@ code{font-size:13px;background:var(--field);padding:1px 5px;border-radius:4px}
       <p id="srcInfo" class="src"></p>
       <div class="row">
         <button id="dlDxf" type="button">Download DXF</button>
-        <button id="dlZip" type="button">Full package (.zip)</button>
+        <button id="dlScr" type="button">Civil 3D setup (.scr)</button>
       </div>
-      <p class="hint">The package adds a PNEZD point file, an Esri ASCII DEM grid and a README with the datum notes.</p>
+      <button id="dlZip" type="button" style="width:100%">Full package (.zip)</button>
+      <p class="hint">Open the DXF in Civil 3D, then drag the .scr file onto the drawing. It sets the coordinate system to the zone above and zooms to the site. The package holds both, plus a PNEZD point file, an Esri ASCII DEM grid and a README.</p>
     </div>
     <div class="note">
-      DXF opens straight into AutoCAD or Civil 3D at true State Plane coordinates. Run <code>SAVEAS</code> to make it a DWG, and set the drawing coordinate system to the zone code above. Elevations are the USGS 3DEP 1&nbsp;m bare-earth DEM, which is built from lidar ground returns. Where no lidar exists, USGS fills the gap with coarser data, so check the source line after each run.
+      DXF opens straight into AutoCAD or Civil 3D at true State Plane coordinates. Drag the setup script onto it to assign the coordinate system, then run <code>SAVEAS</code> to make it a DWG. Elevations are the USGS 3DEP 1&nbsp;m bare-earth DEM, which is built from lidar ground returns. Where no lidar exists, USGS fills the gap with coarser data, so check the source line after each run.
     </div>
   </section>
 </aside>
@@ -612,12 +613,18 @@ function notes() {
 }
 function makeDXF() { const f = +$('csf').value || 1; return buildDXF({lines: result.lines, rings: result.sp, factor: f, label: $('lbl').checked, noteLines: notes(), textH: Math.max(2, result.gcell * 1.5)}); }
 function save(blob, name) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000); }
+function makeSCR() {
+  // Script run by dragging onto the open drawing. ade_projsetwscode sets the zone Civil 3D shows under Drawing Settings > Units and Zone.
+  return ['(ade_projsetwscode "' + result.Z.code + '")', '_.ZOOM _E', '(princ "\\nCoordinate system set to ' + result.Z.code + '. Run SAVEAS to keep it as a DWG.")', ''].join('\r\n');
+}
+$('dlScr').onclick = () => { if (result) save(new Blob([makeSCR()], {type: 'text/plain'}), fname() + '-setup.scr'); };
 $('dlDxf').onclick = () => { if (result) save(new Blob([makeDXF()], {type: 'application/dxf'}), fname() + '.dxf'); };
 $('dlZip').onclick = async () => {
   if (!result) return; const R = result, f = +$('csf').value || 1;
   say('Packaging…');
   const zip = new JSZip(), n = fname();
   zip.file(n + '.dxf', makeDXF());
+  zip.file(n + '-setup.scr', makeSCR());
   const step = Math.max(1, Math.round((+$('ptsp').value || 10) / R.gcell));
   zip.file(n + '-points-PNEZD.csv', buildCSV(R.z, R.mask, R.w, R.h, R.gx0, R.gy0, R.gcell, step, f));
   zip.file(n + '-dem.asc', buildASC(R.z, R.mask, R.w, R.h, R.gx0, R.gy0, R.gcell, f));
@@ -625,7 +632,7 @@ $('dlZip').onclick = async () => {
     n + '.dxf  Contours (V-TOPO-MAJR / V-TOPO-MINR, polylines at elevation), boundary (V-TOPO-BNDY), labels, notes.',
     n + '-points-PNEZD.csv  Grid points every ' + (step * R.gcell) + ' ft: Point, Northing, Easting, Elevation, Description.',
     n + '-dem.asc  Esri ASCII elevation grid, ' + R.gcell * f + ' ft cells, -9999 outside the boundary.', '',
-    'CIVIL 3D', '1. Open the DXF, then SAVEAS to DWG.', '2. Settings > Drawing > Edit Drawing Settings > Units and Zone: set ' + R.Z.code + '.',
+    'CIVIL 3D', '1. Open the DXF.', '2. Drag ' + n + '-setup.scr onto the drawing. It sets the coordinate system to ' + R.Z.code + ' and zooms to the site.', '   (Manual alternative: Settings > Drawing > Edit Drawing Settings > Units and Zone > ' + R.Z.code + '.)', '   Then SAVEAS to DWG.',
     '3. Surface: Create Surface, then Definition > Contours > Add, and pick the V-TOPO-MAJR and V-TOPO-MINR layers.',
     '   Or Definition > Point Files > Add with the PNEZD CSV, or Definition > DEM Files > Add with the .asc grid.'].join('\r\n'));
   save(await zip.generateAsync({type: 'blob', compression: 'DEFLATE'}), n + '.zip'); say('Package downloaded.', 'ok');
